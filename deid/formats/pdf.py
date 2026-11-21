@@ -44,7 +44,7 @@ from pikepdf import Name, String, Array, Dictionary, Stream, Operator, ContentSt
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult, Observation,
                       Reference, REWRITTEN, VERIFIED_UNCHANGED, COPIED_UNSUPPORTED, SOURCE_EXCEPTION)
 from deid.formats import _nativeutil as nu
-from deid.identity.aliases import TOKEN_RE
+from deid.identity.aliases import TOKEN_RE, norm_token
 
 try:  # pdfminer.six (MIT): encodings, glyph names, standard-14 metrics
     from pdfminer.latin_enc import ENCODING as _LATIN_ENC
@@ -1374,6 +1374,35 @@ def _namespace_codes(plan, ns: str) -> set:
     return idx.get(ns, set())
 
 
+def slot_names(plan, logical_path: str) -> dict:
+    """{value: kind} for the repo owner / project names of the path's structural slot
+    (sources/github|gitlab/OWNER__REPO/..., archives/OWNER__REPO__sha.zip!/...): the whole pieces,
+    and their tokens that are not dictionary words (BCN3D, OpenLoong). The path map renders the
+    slot with the same token aliases, so text and path stay consistent."""
+    from deid.identity.vocab import is_word
+    from deid.identity.plan import SHA_PIECE_RE
+    parts = logical_path.split("!/", 1)[0].split("/")
+    if parts[0] == "sources" and len(parts) > 3 and parts[1] in ("github", "gitlab"):
+        slot = parts[2]
+    elif parts[0] == "archives" and len(parts) > 1:
+        slot = re.sub(r"(\.(zip|tar|tgz|gz|7z|rar|bz2|xz))+$", "", parts[1], flags=re.I)
+    else:
+        return {}
+    out = {}
+    pieces = slot.split("__")
+    for i, pc in enumerate(pieces):
+        if not pc or (i == len(pieces) - 1 and len(pieces) > 1 and SHA_PIECE_RE.match(pc)):
+            continue
+        if parts[0] == "sources" and parts[1] == "gitlab" and i == 0 and "." in pc:
+            continue
+        if len(pc) >= 4 and not is_word(pc.lower()):
+            out[pc] = "piece"
+        for t in TOKEN_RE.findall(pc):
+            if len(t) >= 4 and not t.isdigit() and not is_word(t.lower()):
+                out[t] = "token"
+    return out
+
+
 class _StemPlan:
     """Plan + this PDF's part/drawing-number codes (its own file stem and the CAD/PDF file stems of
     its project). A matched code gets the plan's token pseudonyms (plan._render_tokens: deterministic,
@@ -1382,6 +1411,7 @@ class _StemPlan:
     def __init__(self, plan, codes):
         self._p = plan
         toks = sorted({tuple(t for t in TOKEN_RE.findall(c)) for c in codes}, key=lambda t: (-sum(map(len, t)), t))
+        toks = [t for t in toks if t]
         alts = [r"[-_. ]?".join(re.escape(t) for t in tk) for tk in toks if tk]
         self._rx = re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(alts) + r")(?![A-Za-z0-9])", re.I) if alts else None
         self.hits = 0
@@ -1394,7 +1424,9 @@ class _StemPlan:
             return text
 
         def rep(m):
-            r = self._p._render_tokens(m.group(0))
+            span = m.group(0)
+            ent = self._p.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(span)))
+            r = self._p._render_entry(ent, span) if ent is not None else self._p._render_tokens(span)
             if r != m.group(0):
                 self.hits += 1
             return r
@@ -1412,11 +1444,13 @@ class _StemPlan:
 
 
 def stem_code_plan(ctx, plan):
-    if os.environ.get("DEID_PDF_STEM_CODES", "1") != "1":
-        return plan, 0
+    codes = set()
     try:
         lp = ctx.logical_path
-        codes = set(stem_codes(lp)) | _namespace_codes(plan, _sc_ns(lp))
+        if os.environ.get("DEID_PDF_STEM_CODES", "0") == "1":
+            codes |= set(stem_codes(lp)) | _namespace_codes(plan, _sc_ns(lp))
+        if os.environ.get("DEID_PDF_SLOT_NAMES", "1") == "1":
+            codes |= set(slot_names(plan, lp))
     except Exception:
         return plan, 0
     if not codes:
@@ -1435,7 +1469,7 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e2"
+    version = "2e3"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
