@@ -53,6 +53,7 @@ USERDIR_RE = re.compile(
     r"(?i)[\\/]{1,2}(?:users|documents and settings|home|export/home)[\\/]{1,2}"
     r"([^\\/\x00-\x1f\"'<>|:*?]{1,64}?)(?=[\\/])")
 _USERDIR_HINT = re.compile(r"(?:users|documents and settings|home)[\\/]")  # run on lower()
+HOSTLIKE_RE = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,12}")
 SHA_PIECE_RE = re.compile(r"^[0-9a-f]{12}$")
 VERSION_SUFFIX_RE = re.compile(r"\.\d+$")
 
@@ -407,7 +408,7 @@ class IdentityPlan:
                     ent = self.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(p)))
                     out.append(self._render_entry(ent, p) if ent else self._render_tokens(p))
             return "__".join(out) + suf
-        if bucket == "web":
+        if bucket == "web" or (not is_file and HOSTLIKE_RE.fullmatch(stem)):
             return self._render_domain(stem) + suf
         # catalog and others: dictionary only
         return self.replace_text(stem) + suf
