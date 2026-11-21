@@ -47,6 +47,11 @@ def sub_text(plan, text: str) -> str:
     return plan.replace_text(text)
 
 
+def fit_len(s: str, n: int, pad: str = " ") -> str:
+    """Truncate or pad to exactly n characters (last-resort for fixed slots)."""
+    return s[:n] if len(s) >= n else s + pad * (n - len(s))
+
+
 def same_len_text(plan, value: str, kind: Optional[str] = None, *, pad: str = " ") -> Optional[str]:
     """Return a replacement with exactly len(value) characters, or None if the
     plan's replacement cannot be made to fit without losing information
@@ -233,3 +238,165 @@ def record_constraint(ctx, raw_ref: str, reason: str, fmt: str) -> None:
 def path_basename(raw: str) -> str:
     s = raw.replace("\\", "/")
     return s.rsplit("/", 1)[-1]
+
+
+# ---------------------------------------------------------------------------
+# Property-name -> observation kind
+# ---------------------------------------------------------------------------
+_PROP_KINDS = [
+    (re.compile(r"e-?mail", re.I), "email"),
+    (re.compile(r"phone|fax|tel[eé]?fon", re.I), "phone"),
+    (re.compile(r"address|adresse|street|city|zip|postal", re.I), "address"),
+    (re.compile(r"company|organi[sz]ation|customer|client|vendor|supplier|manufacturer|firma|empresa|"
+                r"soci[eé]t[eé]|kunde|cliente|owner ?org|university|school", re.I), "company"),
+    (re.compile(r"author|drawn|draftsman|designer|designed|engineer|checked|chk|approv|created ?by|"
+                r"creator|last ?saved|lastmodifiedby|modified ?by|saved ?by|owner|manager|user|"
+                r"responsible|zeichner|bearbeit|gepr|dibuj|revis(?:ed|ado) ?by|qa|mfg", re.I), "person"),
+    (re.compile(r"project|projekt|proyecto|projet|program|job", re.I), "project"),
+    (re.compile(r"drawing ?n|dwg ?n|doc(?:ument)? ?n|zeichnungs", re.I), "document_number"),
+    (re.compile(r"part ?n|partno|p/?n\b|number|nummer|n[uú]mero|item ?n|sku|article|artikel|code|"
+                r"stock ?code|bom", re.I), "part_number"),
+    (re.compile(r"description|title|name|bezeichnung|benennung|denominaci|titel|t[ií]tulo|"
+                r"subject|comment|keyword|note", re.I), "part_name"),
+    (re.compile(r"url|web|homepage|link|domain", re.I), "url"),
+]
+_PROP_SKIP = re.compile(r"^(?:\$?prp|sw-?(?:date|fecha|short ?date|long ?date)|date|datum|fecha|"
+                        r"revision|rev|material|mass|weight|finish|units?|scale|sheet|qty|quantity|"
+                        r"volume|density|tolerance|cost|version|configuration ?name)$", re.I)
+
+
+def prop_kind(name: str) -> Optional[str]:
+    """Observation kind for a named property; None for clearly non-identifying keys."""
+    n = (name or "").strip()
+    if not n:
+        return "free_text"
+    if _PROP_SKIP.match(n):
+        return None
+    for rx, k in _PROP_KINDS:
+        if rx.search(n):
+            return k
+    return "free_text"
+
+
+# ---------------------------------------------------------------------------
+# Generic XML value rewriting (keeps markup bytes intact except changed values)
+# ---------------------------------------------------------------------------
+_XML_TEXT = re.compile(r">([^<>]+)<")
+_XML_ATTR = re.compile(r"(\s)([A-Za-z_][\w.:\-]*)=(\"[^\"]*\"|'[^']*')")
+_XML_ATTR_KEEP = {"name", "pid", "fmtid", "id", "type", "typeid", "xsi:type", "version", "encoding",
+                  "standalone", "schemaversion", "programversion", "fileversion", "Target", "TargetMode",
+                  "Type", "ContentType", "Extension", "PartName", "count", "value_type", "Id"}
+
+
+def xml_unescape(s: str) -> str:
+    def ent(m):
+        e = m.group(1)
+        if e.startswith("#x") or e.startswith("#X"):
+            try:
+                return chr(int(e[2:], 16))
+            except ValueError:
+                return m.group(0)
+        if e.startswith("#"):
+            try:
+                return chr(int(e[1:]))
+            except ValueError:
+                return m.group(0)
+        return {"lt": "<", "gt": ">", "amp": "&", "quot": '"', "apos": "'"}.get(e, m.group(0))
+    return re.sub(r"&(#?[A-Za-z0-9]+);", ent, s)
+
+
+def xml_escape(s: str, quote: Optional[str] = None) -> str:
+    s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    if quote == '"':
+        s = s.replace('"', "&quot;")
+    elif quote == "'":
+        s = s.replace("'", "&apos;")
+    return s
+
+
+def rewrite_xml_values(text: str, value_fn, attr_keep=None) -> tuple:
+    """Apply value_fn(value, where) -> new_value to every text node and attribute
+    value (unescaped), re-escaping results.  `where` is "text" or the attribute
+    name.  Comments/CDATA/processing instructions are treated as text nodes only
+    when they appear between tags (rare in CAD XML).  Returns (new_text, n_changed)."""
+    keep = _XML_ATTR_KEEP if attr_keep is None else attr_keep
+    n = [0]
+
+    def tnode(m):
+        raw = m.group(1)
+        if not raw.strip() or raw.lstrip().startswith(("<!--", "<![CDATA[", "<?")):
+            return m.group(0)
+        v = xml_unescape(raw)
+        nv = value_fn(v, "text")
+        if nv == v:
+            return m.group(0)
+        n[0] += 1
+        return ">" + xml_escape(nv) + "<"
+
+    def anode(m):
+        sp, name, q = m.group(1), m.group(2), m.group(3)
+        if name in keep or name.startswith("xmlns"):
+            return m.group(0)
+        quote = q[0]
+        v = xml_unescape(q[1:-1])
+        nv = value_fn(v, name)
+        if nv == v:
+            return m.group(0)
+        n[0] += 1
+        return f"{sp}{name}={quote}{xml_escape(nv, quote)}{quote}"
+
+    # attributes live inside tags; text between tags
+    out = []
+    pos = 0
+    for tm in re.finditer(r"<[^<>]*>", text):
+        seg = text[pos:tm.start()]
+        if seg:
+            out.append(_XML_TEXT.sub(tnode, ">" + seg + "<")[1:-1])
+        tag = tm.group(0)
+        if not tag.startswith(("<?", "<!")):
+            tag = _XML_ATTR.sub(anode, tag)
+        out.append(tag)
+        pos = tm.end()
+    seg = text[pos:]
+    if seg:
+        out.append(seg)
+    return "".join(out), n[0]
+
+
+CAD_REF_RE = re.compile(r"\.(sldprt|sldasm|slddrw|slddrt|sldlfp|prtdot|asmdot|drwdot|ipt|iam|idw|ipn|dwg|dxf|"
+                        r"par|asm|psm|pwd|dft|prt|drw|catpart|catproduct|catdrawing|step|stp|igs|iges|x_t|x_b|"
+                        r"sat|stl|jt|fcstd|f3d|3mf|pdf|png|jpg|bmp|xls|xlsx|csv|txt|ipj)(?:\.\d+)?$", re.I)
+
+
+def looks_like_ref(s: str) -> bool:
+    s = s.strip()
+    if not s or len(s) > 400 or "\n" in s:
+        return False
+    return bool(CAD_REF_RE.search(s))
+
+
+def map_ref_same_len(plan, ctx, raw: str) -> Optional[str]:
+    """Reference rewrite that keeps the exact character count (for binary
+    containers where a string's length cannot change).  The basename follows
+    plan.map_reference and must keep its length; the directory part is
+    de-identified with a same-length replacement.  Returns the new string, the
+    unchanged string if nothing to do, or None if impossible."""
+    try:
+        new = plan.map_reference(ctx, raw)
+    except Exception:
+        new = raw
+    sep = max(raw.rfind("\\"), raw.rfind("/"))
+    nsep = max(new.rfind("\\"), new.rfind("/"))
+    ob, nb = raw[sep + 1:], new[nsep + 1:]
+    if len(ob) != len(nb):
+        return None
+    od = raw[:sep + 1]
+    nd = plan.replace_text(od) if od else od
+    if len(nd) != len(od):
+        try:
+            nd = plan.replace_bytes(od.encode("utf-16-le"), ("utf-16-le",), True).decode("utf-16-le")
+        except Exception:
+            nd = od
+        if len(nd) != len(od):
+            nd = od
+    return nd + nb
