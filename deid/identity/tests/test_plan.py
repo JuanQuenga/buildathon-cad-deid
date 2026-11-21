@@ -161,6 +161,14 @@ class RefTests(unittest.TestCase):
     def test_creo_unversioned(self):
         self.assertEqual(self.p.resolve_reference(self.ctx, "gear.prt"), self.p.inventory[3])
 
+    def test_creo_stem_kept_next_to_assembly(self):
+        inv = ["sources/github/quuxcorp__k/creo/quuxcorp_top.asm.2", "sources/github/quuxcorp__k/creo/quuxcorp_arm.prt.4",
+               "sources/github/quuxcorp__k/solo/quuxcorp_alone.prt.1"]
+        p = mk([("quuxcorp", "account", FLEX)], inv)
+        self.assertTrue(p.map_path(inv[1]).endswith("/creo/quuxcorp_arm.prt.4"))
+        self.assertNotIn("quuxcorp", p.map_path(inv[2]))
+        self.assertNotIn("quuxcorp", p.map_path(inv[1]).split("/")[2])
+
     def test_member(self):
         ctx = "archives/quuxcorp__x.zip!/frobnitz-widget-kit-main/b.step"
         self.assertEqual(self.p.resolve_reference(ctx, "a.step"), self.p.inventory[4])

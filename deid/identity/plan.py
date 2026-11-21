@@ -57,6 +57,10 @@ _USERDIR_HINT = re.compile(r"(?:users|settings|home|isateurs|benutzer|usuarios|u
 HOSTLIKE_RE = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,12}")
 SHA_PIECE_RE = re.compile(r"^[0-9a-f]{12}$")
 VERSION_SUFFIX_RE = re.compile(r"\.\d+$")
+# Formats whose cross-file links are stored by model name inside opaque
+# (compressed/checksummed) sections we cannot rewrite: Creo, CATIA V5.
+OPAQUE_MODEL_RE = re.compile(r"(?i)\.(prt|asm|drw|frm|lay|neu|mfg|sec)(\.\d+)?$|\.(catpart|catproduct|catdrawing|cgr)$")
+OPAQUE_PARENT_RE = re.compile(r"(?i)\.(asm|drw|lay|mfg)(\.\d+)?$|\.(catproduct|catdrawing)$")
 
 
 def _hash(*parts) -> str:
@@ -162,6 +166,7 @@ class IdentityPlan:
         self._used_frozen = frozenset(self._used)
         self.inventory = list(inventory)
         self._inv_index = None
+        self._opaque_dirs = None
         self._matcher = None
         self._map_cache = {}
         self.version = self.meta.get("version") or _hash(
@@ -463,6 +468,21 @@ class IdentityPlan:
         # catalog and others: dictionary only
         return self.replace_text(stem) + suf
 
+    def _keeps_stem(self, logical_path: str) -> bool:
+        """True for Creo/CATIA files in a directory that also holds a Creo
+        assembly/drawing or CATIA product/drawing: their links are by model
+        name inside opaque sections, so the file stem must not change."""
+        if not OPAQUE_MODEL_RE.search(logical_path):
+            return False
+        if self._opaque_dirs is None:
+            d = set()
+            for p in self.inventory:
+                if OPAQUE_PARENT_RE.search(p):
+                    d.add(p.rsplit("/", 1)[0].lower() if "/" in p else "")
+            self._opaque_dirs = d
+        parent = logical_path.rsplit("/", 1)[0].lower() if "/" in logical_path else ""
+        return parent in self._opaque_dirs
+
     def map_top(self, path: str) -> str:
         r = self._map_cache.get(path)
         if r is not None:
@@ -483,6 +503,9 @@ class IdentityPlan:
                 out.append(c)
             elif parts[0] == "archives" and i == 1:
                 out.append(self._map_slot("archives", c, is_file))
+            elif is_file and self._keeps_stem(path):
+                stem, suf = split_ext(c)
+                out.append(c)
             else:
                 out.append(self._map_component(c, is_file))
         r = "/".join(out)
@@ -498,8 +521,11 @@ class IdentityPlan:
     def map_path(self, logical_path: str) -> str:
         segs = logical_path.split("!/")
         out = [self.map_top(segs[0])]
-        for s in segs[1:]:
-            out.append(self.map_member(s))
+        for i, s in enumerate(segs[1:], 1):
+            m = self.map_member(s)
+            if self._keeps_stem(logical_path) and i == len(segs) - 1:
+                m = m.rsplit("/", 1)[0] + "/" + s.rsplit("/", 1)[-1] if "/" in s else s
+            out.append(m)
         return "!/".join(out)
 
     # ------------------------------------------------------------------ references
