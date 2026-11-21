@@ -417,7 +417,7 @@ class _Stream:
 
 
 _WS = b" \t\r\n"
-_LEAD = re.compile(rb"(?:\s|\xef\xbb\xbf|/\*.*?\*/)*ISO-10303-21\s*;", re.S)
+_LEAD = re.compile(rb"(?:\s|\xef\xbb\xbf|/\*.*?\*/)*(?:ISO-10303-21|STEP)\s*;", re.S)
 
 
 def _has_header(head: bytes) -> bool:
@@ -456,7 +456,7 @@ def _is_ascii_file(path: str) -> bool:
 
 class StepAdapter(Adapter):
     name = "step"
-    version = "4"
+    version = "5"
     priority = 10
     magics = ("step",)
     extensions = (".step", ".stp", ".p21")
