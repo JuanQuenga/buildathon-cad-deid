@@ -44,6 +44,7 @@ from pikepdf import Name, String, Array, Dictionary, Stream, Operator, ContentSt
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult, Observation,
                       Reference, REWRITTEN, VERIFIED_UNCHANGED, COPIED_UNSUPPORTED, SOURCE_EXCEPTION)
 from deid.formats import _nativeutil as nu
+from deid.identity.aliases import TOKEN_RE
 
 try:  # pdfminer.six (MIT): encodings, glyph names, standard-14 metrics
     from pdfminer.latin_enc import ENCODING as _LATIN_ENC
@@ -1293,6 +1294,137 @@ def _renders(path: str, page: int, tmp_dir: str = "") -> Optional[bool]:
 
 
 # ---------------------------------------------------------------------------
+# E2: file-stem / part-number codes (PDF text only; no renames, plan unchanged)
+# ---------------------------------------------------------------------------
+_SC_CODE = re.compile(r"^(?=[^ ]*\d)[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*$")
+_SC_DATE = re.compile(r"^\d{1,4}[./-]\d{1,2}[./-]\d{1,4}$")
+_SC_DIM = re.compile(r"^\d+([.,]\d+)?\s*[x×:]\s*\d+|^[mM]\d|^(?:rev|ver|r|v)[-_. ]?\d", re.I)
+_SC_VER = re.compile(r"(?i)^(?:rev|ver|v|r)\d{1,2}$")
+_SC_STD = re.compile(r"(?i)^(?:(?:iso|din|en|nema|gb|jis|ansi|asme|uni|aisi|awg|ipc|ul|iec|astm|sae|bs|nf|csa)[-_ ]?\d*|"
+                     r"lm\d+(?:uu|luu)?|mgn|mgw|hgr|hgh|sbr|gt\d|htd|t\d|sg\d+|mg\d+|\d{3,4}(?:zz|rs|2rs|z|-2rs|-zz)|"
+                     r"\d{1,4}(?:[.,]\d+)?(?:mm|cm|m|in|inch|mil|kg|g|w|kw|v|kv|a|ma|ah|mah|nm|rpm|hz|khz|mhz|ghz|t|deg|"
+                     r"x|mpa|bar|psi|ml|l|um|µm|ohm|k|uf|nf|pf|mh|uh|db|s|ms|us|h|min|d|yr|pcs|pc|st|px|dpi|pt|lbs?|oz|ft))$")
+_SC_CAD_EXT = re.compile(r"(?i)\.(sldprt|sldasm|slddrw|step|stp|iges|igs|ipt|iam|idw|dwg|dxf|catpart|catproduct|"
+                         r"catdrawing|par|asm|psm|dft|prt|drw|fcstd|f3d|x_t|sat|stl|pdf)(\.\d+)?$")
+
+
+def _sc_ok(c: str) -> bool:
+    if not (_SC_CODE.match(c) and 4 <= len(c) <= 32) or _SC_DATE.match(c) or _SC_DIM.match(c):
+        return False
+    parts = re.split(r"[-_.]", c)
+    if any(_SC_STD.match(p) for p in parts) or _SC_STD.match(c.replace("-", "").replace("_", "")):
+        return False
+    digits = sum(ch.isdigit() for ch in c)
+    letters = sum(ch.isalpha() for ch in c)
+    return bool((letters and digits >= 2) or digits >= 5)
+
+
+def stem_codes(path: str) -> set:
+    """Codes in a file name: separator runs trimmed to parts with digits at both ends, plus their
+    contiguous sub-runs (BU21-DP003-16 -> BU21-DP003-16, DP003-16, DP003, ...)."""
+    base = path.rsplit("!/", 1)[-1].rsplit("/", 1)[-1]
+    base = re.sub(r"(\.\d+)$", "", base)
+    stem = base.rsplit(".", 1)[0] if "." in base else base
+    out = set()
+    for run in re.findall(r"[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*", stem):
+        parts = re.split(r"([-_.])", run)
+        toks, seps = parts[0::2], parts[1::2]
+        n = len(toks)
+        if n > 12:
+            continue
+        dig = [any(ch.isdigit() for ch in t) for t in toks]
+        ver = [bool(_SC_VER.match(t)) for t in toks]
+        for i in range(n):
+            # a code starts at a part with digits, or at a short upper-case prefix (MET-PMP-004)
+            if ver[i] or not (dig[i] or (toks[i].isalpha() and toks[i].isupper() and len(toks[i]) <= 4)):
+                continue
+            for j in range(i, n):
+                if j > i and not (dig[j - 1] or len(toks[j - 1]) <= 4) and j - 1 > i:
+                    break                      # a word inside: the code ended before it
+                if not dig[j] or ver[j]:
+                    continue
+                c = toks[i] + "".join(seps[k] + toks[k + 1] for k in range(i, j))
+                if _sc_ok(c):
+                    out.add(c)
+    return out
+
+
+def _sc_ns(path: str) -> str:
+    parts = path.split("!/", 1)[0].split("/")
+    if parts[0] == "sources" and len(parts) > 2 and parts[1] in ("github", "catalog"):
+        return "/".join(parts[:3])
+    return "/".join(parts[:-1][:5])
+
+
+_SC_NS_CACHE: dict = {}
+
+
+def _namespace_codes(plan, ns: str) -> set:
+    """Codes of the CAD/PDF file names of the same project (from the plan's inventory)."""
+    idx = _SC_NS_CACHE.get(id(plan))
+    if idx is None:
+        idx = {}
+        for p in getattr(plan, "inventory", ()) or ():
+            if _SC_CAD_EXT.search(p):
+                cs = stem_codes(p)
+                if cs:
+                    idx.setdefault(_sc_ns(p), set()).update(cs)
+        _SC_NS_CACHE.clear()
+        _SC_NS_CACHE[id(plan)] = idx
+    return idx.get(ns, set())
+
+
+class _StemPlan:
+    """Plan + this PDF's part/drawing-number codes (its own file stem and the CAD/PDF file stems of
+    its project). A matched code gets the plan's token pseudonyms (plan._render_tokens: deterministic,
+    format-preserving, the same pseudonym a renamed stem would get). Paths are not changed."""
+
+    def __init__(self, plan, codes):
+        self._p = plan
+        toks = sorted({tuple(t for t in TOKEN_RE.findall(c)) for c in codes}, key=lambda t: (-sum(map(len, t)), t))
+        alts = [r"[-_. ]?".join(re.escape(t) for t in tk) for tk in toks if tk]
+        self._rx = re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(alts) + r")(?![A-Za-z0-9])", re.I) if alts else None
+        self.hits = 0
+
+    def __getattr__(self, name):
+        return getattr(self._p, name)
+
+    def _sub(self, text):
+        if self._rx is None or not text:
+            return text
+
+        def rep(m):
+            r = self._p._render_tokens(m.group(0))
+            if r != m.group(0):
+                self.hits += 1
+            return r
+        return self._rx.sub(rep, text)
+
+    def replace_text(self, text, *a, **kw):
+        return self._sub(self._p.replace_text(text, *a, **kw))
+
+    def alias(self, value, kind=None):
+        a = self._p.alias(value, kind)
+        if a is None and value and self._rx is not None:
+            r = self._sub(value)
+            return r if r != value else None
+        return a
+
+
+def stem_code_plan(ctx, plan):
+    if os.environ.get("DEID_PDF_STEM_CODES", "1") != "1":
+        return plan, 0
+    try:
+        lp = ctx.logical_path
+        codes = set(stem_codes(lp)) | _namespace_codes(plan, _sc_ns(lp))
+    except Exception:
+        return plan, 0
+    if not codes:
+        return plan, 0
+    return _StemPlan(plan, codes), len(codes)
+
+
+# ---------------------------------------------------------------------------
 # The adapter
 # ---------------------------------------------------------------------------
 INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software", "/Company": "company",
@@ -1303,7 +1435,7 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2"
+    version = "2e2"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1421,6 +1553,9 @@ class PdfAdapter(Adapter):
         except Exception as e:
             return RewriteResult(status=SOURCE_EXCEPTION, notes=[f"unreadable PDF: {type(e).__name__}"])
         children = []
+        plan, nsc = stem_code_plan(ctx, plan)
+        if nsc:
+            counts["stem_codes"] = nsc
         with pdf:
             changed = 0
             # 1. content streams (only pages whose extracted text has an identity)
@@ -1456,6 +1591,8 @@ class PdfAdapter(Adapter):
             except Exception as e:
                 notes.append(f"object walk incomplete: {type(e).__name__}")
             counts["strings_replaced"] = gw.changed
+            if nsc:
+                counts["stem_code_hits"] = plan.hits
             changed += gw.changed
             # 3. XMP packets
             nx = 0
