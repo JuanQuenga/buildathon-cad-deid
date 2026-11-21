@@ -133,3 +133,17 @@ pseudonymised consistently.
 * The corpus is organic (scraped repositories, sites, catalogs). There is no planted fictitious identity
   set in the sample or the path inventory; identities are source owners/repos/sites/organisations,
   people in author/creator/last-saved-by fields and profile directories, emails, and domains.
+
+## Current numbers (aggregate only)
+
+Discovery over 104,503 downloaded files + STEP headers of all 62,224 STEP files (ranged reads):
+candidates kept by the classifier: 803 person, 351 account, 95 company, 125 email, 780 domain values
+(seen in 10.8k / 6.7k / 25.4k / 0.9k / 34.7k files respectively; one value can count in many files).
+
+Plan built from manifest + curated + discovered tables: 3,817 entries
+(account 674, person 732, company 123, project 475, domain 1,715, email 98) with 3,443 aliased tokens.
+Free-text modes: 1,690 flex, 1,662 exact, 465 field-only.
+
+Path plan on the full manifest: 186,748 of 188,722 paths change; 0 depth/extension/length changes;
+0 case-insensitive collisions; changed components: ~183.8k slot (owner/repo/site/catalog name),
+~30.2k deeper directories, ~2.9k file stems.
