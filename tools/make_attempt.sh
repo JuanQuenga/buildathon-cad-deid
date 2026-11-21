@@ -48,7 +48,7 @@ CHANGED=$(git -C "$REPO" diff --name-only "$PREVSHA" "$NEWSHA" -- deid | tr '\n'
 log "changed modules: ${CHANGED:-none}"
 FULL=0
 case " $CHANGED " in *" deid/api.py "*|*" deid/pipeline/core.py "*|*" deid/formats/_"*) FULL=1;; esac
-case " $CHANGED " in *" deid/identity/"*) [ "$REPLAN" = 1 ] || { log "identity code changed: forcing --replan"; REPLAN=1; };; esac
+if [ "${KEEP_PLAN:-0}" != 1 ]; then case " $CHANGED " in *" deid/identity/"*) [ "$REPLAN" = 1 ] || { log "identity code changed: forcing --replan"; REPLAN=1; };; esac; else log "KEEP_PLAN=1: plan copied unchanged from the previous attempt"; fi
 if [ "$REPLAN" = 1 ]; then rm -rf "$W/plan"; FULL=1; fi
 cd "$WT"
 $PY - "$W" "$FULL" $CHANGED <<'EOF'
