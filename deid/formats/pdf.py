@@ -44,7 +44,7 @@ from pikepdf import Name, String, Array, Dictionary, Stream, Operator, ContentSt
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult, Observation,
                       Reference, REWRITTEN, VERIFIED_UNCHANGED, COPIED_UNSUPPORTED, SOURCE_EXCEPTION)
 from deid.formats import _nativeutil as nu
-from deid.identity.aliases import TOKEN_RE
+from deid.identity.aliases import TOKEN_RE, norm_token
 
 try:  # pdfminer.six (MIT): encodings, glyph names, standard-14 metrics
     from pdfminer.latin_enc import ENCODING as _LATIN_ENC
@@ -652,7 +652,10 @@ def _encode_winansi(text: str) -> bytes:
         try:
             b = ch.encode("cp1252")
         except UnicodeEncodeError:
-            b = b"?"
+            # deterministic Latin syllable per character: CJK/Cyrillic/Greek pseudonyms stay readable
+            # and distinct in the Helvetica overlay instead of '?'
+            h = int(hashlib.sha1(ch.encode("utf-8")).hexdigest()[:8], 16)
+            b = ("bcdfghjklmnprstvz"[h % 17] + "aeiou"[(h // 17) % 5]).encode("ascii") if ch.isalnum() else b"?"
         out += b
     return bytes(out)
 
@@ -1122,6 +1125,50 @@ def _xml_escape_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# E7: document metadata (Info Title/Subject/Keywords, XMP dc:title/description/subject, pdf:Keywords)
+# get the plan's token pseudonyms in every PDF (numbers and generic producer words kept)
+_E7_INFO = ("/Title", "/Subject", "/Keywords")
+_E7_XMP = ("dc:title", "dc:description", "dc:subject", "pdf:Keywords")
+_E7_KEEP = set("""
+microsoft word excel powerpoint visio office sheet untitled unbenannt unnamed sans titre sin titulo título
+doc docx xls xlsx ppt pptx pdf dwg dxf rtf txt drawing page layout model print the of and
+users home documents desktop downloads var folders tmp temp
+""".split())
+
+
+def e7_render(plan, v: str) -> str:
+    if os.environ.get("DEID_PDF_E7", "1") != "1" or not v or not v.strip():
+        return v
+    try:
+        nv = plan.replace_text(v)
+    except Exception:
+        nv = v
+    stems = getattr(plan, "_deid_stems", None)
+    if stems and (_e13_norm(v) in stems or _e13_norm(re.sub(r"\.\w{2,5}$", "", v)) in stems):
+        return nv                     # drawing <-> model name: same as the (aliased) file name
+
+    def sub(m):
+        t = m.group(0)
+        if len(t) <= 1 or any(ch.isdigit() for ch in t) or t.lower() in _E7_KEEP:
+            return t
+        try:
+            return plan._render_tokens(t)
+        except Exception:
+            return t
+    return TOKEN_RE.sub(sub, nv)
+
+
+_E7_XMP_BLOCK = re.compile(r"<(" + "|".join(re.escape(t) for t in _E7_XMP) + r")\b([^>]*)>(.*?)</\1>", re.S)
+
+
+def _e7_xmp(text: str, plan) -> str:
+    def block(m):
+        inner = re.sub(r">([^<>]*[^\s<>][^<>]*)<", lambda mm: ">" + _xml_escape_text(e7_render(plan, _unxml(mm.group(1)))) + "<",
+                       ">" + m.group(3) + "<")[1:-1]
+        return f"<{m.group(1)}{m.group(2)}>{inner}</{m.group(1)}>"
+    return _E7_XMP_BLOCK.sub(block, text)
+
+
 def rewrite_xmp_text(text: str, plan) -> str:
     """Replace identifying values inside an XMP packet without breaking XML:
     leaf element texts and attribute values are unescaped, replaced, re-escaped."""
@@ -1140,12 +1187,15 @@ def rewrite_xmp_text(text: str, plan) -> str:
             return m.group(0)
         v = _unxml(raw)
         nv = nu.sub_value(plan, v)
+        if q in _E7_XMP:
+            nv = e7_render(plan, nv)
         if nv == v:
             return m.group(0)
         return f' {q}="{_xml_escape_text(nv).replace(chr(34), "&quot;")}"'
 
     text = _XMP_LEAF.sub(leaf, text)
     text = _XMP_ATTR.sub(attr, text)
+    text = _e7_xmp(text, plan)
     return text
 
 
@@ -1631,9 +1681,120 @@ def e5_identities(src_path, plan):
     return out
 
 
+def slot_names(plan, logical_path: str) -> dict:
+    """{value: kind} for the repo owner / project names of the path's structural slot
+    (sources/github|gitlab/OWNER__REPO/..., archives/OWNER__REPO__sha.zip!/...): the whole pieces,
+    and their tokens that are not dictionary words (BCN3D, OpenLoong). The path map renders the
+    slot with the same token aliases, so text and path stay consistent."""
+    from deid.identity.vocab import is_word
+    from deid.identity.plan import SHA_PIECE_RE
+    parts = logical_path.split("!/", 1)[0].split("/")
+    if parts[0] == "sources" and len(parts) > 3 and parts[1] in ("github", "gitlab"):
+        slot = parts[2]
+    elif parts[0] == "archives" and len(parts) > 1:
+        slot = re.sub(r"(\.(zip|tar|tgz|gz|7z|rar|bz2|xz))+$", "", parts[1], flags=re.I)
+    else:
+        return {}
+    out = {}
+    pieces = slot.split("__")
+    for i, pc in enumerate(pieces):
+        if not pc or (i == len(pieces) - 1 and len(pieces) > 1 and SHA_PIECE_RE.match(pc)):
+            continue
+        if parts[0] == "sources" and parts[1] == "gitlab" and i == 0 and "." in pc:
+            continue
+        if len(pc) >= 4 and not is_word(pc.lower()):
+            out[pc] = "piece"
+        for t in TOKEN_RE.findall(pc):
+            if len(t) >= 4 and not t.isdigit() and not is_word(t.lower()):
+                out[t] = "token"
+    return out
+
+
+
+
+_E13_CAD = re.compile(r"(?i)\.(sldprt|sldasm|slddrw|step|stp|iges|igs|ipt|iam|idw|dwg|dxf|catpart|catproduct|"
+                      r"catdrawing|par|asm|psm|dft|prt|drw|fcstd|f3d|x_t|sat|stl|pdf)(\.\d+)?$")
+_E13_STEMS: dict = {}
+
+
+def _e13_norm(v: str) -> str:
+    return " ".join(re.split(r"[\s_.\-]+", v.lower())).strip()
+
+
+def _e13_ns(path: str) -> str:
+    parts = path.split("!/", 1)[0].split("/")
+    if parts[0] == "sources" and len(parts) > 2 and parts[1] in ("github", "catalog", "gitlab"):
+        return "/".join(parts[:3])
+    return "/".join(parts[:-1][:5])
+
+
+def project_stems(plan, logical_path: str) -> set:
+    """Normalised file stems of the CAD/PDF files of this PDF's project (drawing <-> model names)."""
+    idx = _E13_STEMS.get(id(plan))
+    if idx is None:
+        idx = {}
+        for p in getattr(plan, "inventory", ()) or ():
+            if _E13_CAD.search(p):
+                base = p.rsplit("!/", 1)[-1].rsplit("/", 1)[-1]
+                base = re.sub(r"(\.\d+)$", "", base)
+                stem = base.rsplit(".", 1)[0]
+                if len(stem) >= 3:
+                    idx.setdefault(_e13_ns(p), set()).add(_e13_norm(stem))
+        _E13_STEMS.clear()
+        _E13_STEMS[id(plan)] = idx
+    return idx.get(_e13_ns(logical_path), set())
+
+
+def e13_extras(ctx, src_path, plan, counts) -> dict:
+    """E5 cells/boilerplate + E4 names (only where E5 has no value) + E3 owner/project names; a value
+    equal to a CAD/PDF file stem of the project gets what the path map gives that stem (usually kept)."""
+    lp = getattr(ctx, "logical_path", "") or ""
+    try:
+        stems = project_stems(plan, lp)
+    except Exception:
+        stems = set()
+    out = dict(e5_identities(src_path, plan))
+    counts["e5_values"] = len(out)
+    try:
+        e4 = local_titleblock_identities(src_path, plan) if os.environ.get("DEID_PDF_E4", "1") == "1" else {}
+    except Exception:
+        e4 = {}
+    n4 = 0
+    for v, a in e4.items():
+        if v not in out and not any(v.lower() == k.lower() for k in out):
+            out[v] = a
+            n4 += 1
+    counts["e4_values"] = n4
+    if os.environ.get("DEID_PDF_SLOT_NAMES", "1") == "1":
+        try:
+            for v in slot_names(plan, lp):
+                if v in out:
+                    continue
+                ent = plan.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(v)))
+                a = plan._render_entry(ent, v) if ent is not None else plan._render_tokens(v)
+                if a and a != v:
+                    out[v] = a
+        except Exception:
+            pass
+    kept = 0
+    for v in list(out):
+        if _e13_norm(v) in stems:
+            try:
+                a = plan.replace_text(v)
+            except Exception:
+                a = v
+            if a == v:
+                del out[v]
+            else:
+                out[v] = a
+            kept += 1
+    counts["stem_values_kept"] = kept
+    return out, stems
+
+
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e5"
+    version = "2e13"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1751,10 +1912,9 @@ class PdfAdapter(Adapter):
         except Exception as e:
             return RewriteResult(status=SOURCE_EXCEPTION, notes=[f"unreadable PDF: {type(e).__name__}"])
         children = []
-        extras = e5_identities(src_path, plan)
-        if extras:
-            plan = _LocalPlan(plan, extras)
-            counts["e5_values"] = len(extras)
+        extras, stems = e13_extras(ctx, src_path, plan, counts)
+        plan = _LocalPlan(plan, extras)
+        plan._deid_stems = stems
         with pdf:
             changed = 0
             # 1. content streams (only pages whose extracted text has an identity)
@@ -1781,6 +1941,8 @@ class PdfAdapter(Adapter):
                             if t is None:
                                 continue
                             nv = nu.sub_value(plan, t, INFO_KIND.get(str(k)) or None)
+                            if str(k) in _E7_INFO:
+                                nv = e7_render(plan, nv)
                             if nv != t:
                                 info[k] = String(nv)
                                 gw.changed += 1
