@@ -1435,7 +1435,7 @@ def _global_sweep_tokens(plan) -> dict:
     return g
 
 
-def sweep_tokens(lp, texts) -> dict:
+def sweep_tokens(lp, texts, keep=()) -> dict:
     """Completeness pass for one PDF: every token this PDF already gets replaced somewhere (plan entries,
     title-block cells, boilerplate owners ...) is replaced at every other occurrence too - other lines,
     phrases broken over two lines, unlabelled repeats, accent/case variants - plus the plan's distinctive
@@ -1474,7 +1474,7 @@ def sweep_tokens(lp, texts) -> dict:
                     continue
                 if len(f) == 3 and not x.isupper():
                     continue                        # 3 letters: only initials (CFK, DWS)
-                if f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf:
+                if f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf or f in keep:
                     continue
                 if not sp and len(f) >= 4:
                     from deid.identity.vocab import is_word
@@ -1595,7 +1595,7 @@ def local_titleblock_identities(src_path, plan):
     except Exception:
         return {}
     try:
-        pages = _bbox_lines(src_path, max_pages=8)
+        pages = [(W, H, _merge_spaced_cjk(lines)) for W, H, lines in _bbox_lines(src_path, max_pages=8)]
     except Exception:
         return {}
     cands = []                                   # (value, kind)
@@ -1806,6 +1806,45 @@ def _e5_render(plan, v: str) -> Optional[str]:
     return r if r != v and len(r) == len(v) else None
 
 
+def _is_cjk_cell(t: str) -> bool:
+    t = t.replace(" ", "")
+    return 1 <= len(t) <= 3 and all("\u4e00" <= ch <= "\u9fff" or "\u3040" <= ch <= "\u30ff" for ch in t)
+
+
+def _merge_spaced_cjk(lines):
+    """Chinese/Japanese title blocks often draw each label glyph as its own text item ('设' '计' = 设计,
+    'designed'); join neighbouring 1-3 glyph CJK items on one baseline into one cell so labels are found."""
+    if os.environ.get("DEID_PDF_CJK_MERGE", "1") != "1" or not lines:
+        return lines
+    cells = [list(l) for l in lines]
+    order = sorted(range(len(cells)), key=lambda i: (round(cells[i][1]), cells[i][0]))
+    out, used = [], set()
+    for i in order:
+        if i in used:
+            continue
+        c = cells[i]
+        used.add(i)
+        if _is_cjk_cell(c[4]):
+            h = max(c[3] - c[1], 1.0)
+            while True:
+                nxt = None
+                for j in order:
+                    if j in used:
+                        continue
+                    d = cells[j]
+                    if (_is_cjk_cell(d[4]) and abs(d[1] - c[1]) < 0.5 * h and 0 <= d[0] - c[2] < 3.5 * h
+                            and len((c[4] + d[4]).replace(" ", "")) <= 6):
+                        if nxt is None or d[0] < cells[nxt][0]:
+                            nxt = j
+                if nxt is None:
+                    break
+                d = cells[nxt]
+                used.add(nxt)
+                c = [c[0], min(c[1], d[1]), d[2], max(c[3], d[3]), (c[4] + d[4]).replace(" ", "")]
+        out.append(tuple(c))
+    return out
+
+
 def e5_identities(src_path, plan):
     """{value: pseudonym}: (a) the cell to the right of / below every label-like cell of a person,
     company, project, part-name, document-number, contact or address label in any of our languages
@@ -1815,7 +1854,7 @@ def e5_identities(src_path, plan):
     if os.environ.get("DEID_PDF_E5", "1") != "1":
         return {}
     try:
-        pages = _bbox_lines(src_path, max_pages=8)
+        pages = [(W, H, _merge_spaced_cjk(lines)) for W, H, lines in _bbox_lines(src_path, max_pages=8)]
     except Exception:
         return {}
     cands = []
@@ -2317,7 +2356,12 @@ class PdfAdapter(Adapter):
             # 1. content streams (only pages whose extracted text has an identity)
             texts = _pdftotext_pages(src_path)
             try:
-                sw = sweep_tokens(plan, texts)
+                # tokens of this project's CAD/PDF file stems and of values the paired model also carries
+                # are never swept locally (drawing <-> model names keep matching)
+                keep = set()
+                for v in list(stems) + list(_model_values(getattr(ctx, "logical_path", "") or "")):
+                    keep.update(_fold(t) for t in TOKEN_RE.findall(v))
+                sw = sweep_tokens(plan, texts, keep)
             except Exception:
                 sw = {}
             counts["sweep_tokens"] = len(sw)
