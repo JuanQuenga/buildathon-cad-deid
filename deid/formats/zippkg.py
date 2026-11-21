@@ -259,6 +259,11 @@ def _encode_text(t: str, enc: str) -> bytes:
 _FC_FILE_ATTR = re.compile(r'(<(?:XLink|Link|LinkSub)\b[^>]*\bfile=")([^"]*)(")')
 
 
+def _fusion_meta(low: str, info) -> bool:
+    """Fusion .dat members worth parsing (names/metadata), not geometry bulk."""
+    return "bulkstream" not in low and info.file_size <= (16 << 20)
+
+
 def _iter_lp_strings(buf: bytes, min_len: int = 4, max_len: int = 4096):
     """uint32-LE length-prefixed printable UTF-8 strings (Fusion .dat)."""
     n = len(buf)
@@ -349,7 +354,7 @@ class ZipPackageAdapter(Adapter):
                         children.append(self._child_scan(ctx, nm, data))
                     if not low.endswith(".svg"):
                         continue
-                if low.endswith(".dat") and kind == "fusion":
+                if low.endswith(".dat") and kind == "fusion" and _fusion_meta(low, info):
                     for off, ln, t in _iter_lp_strings(data):
                         if not re.fullmatch(r"[0-9A-Fa-f\-{}$%#]+", t):
                             nu.add_obs(obs, "free_text", f"zippkg.fusion.dat", t[:500], nm.rsplit("/", 1)[-1], 0.2)
@@ -469,7 +474,7 @@ class ZipPackageAdapter(Adapter):
                     new = self._child_rewrite(ctx, nm, data, plan, children)
                     if new is not None:
                         counts["embedded_rewritten"] += 1
-                elif low.endswith(".dat") and kind == "fusion":
+                elif low.endswith(".dat") and kind == "fusion" and _fusion_meta(low, info):
                     new = self._edit_dat(data, plan, counts)
                 elif _is_xml(nm, data):
                     new = self._edit_xml(ctx, kind, nm, data, plan, counts)
