@@ -68,8 +68,9 @@ def _mode_for(value, *, strong=True, kind=None):
 
 
 def registrable(host: str) -> str:
+    from .plan import is_public_suffix
     labels = host.lower().strip(".").split(".")
-    if len(labels) >= 3 and ".".join(labels[-2:]) in PUBLIC_SUFFIX_2:
+    if len(labels) >= 3 and (".".join(labels[-2:]) in PUBLIC_SUFFIX_2 or is_public_suffix(".".join(labels[-2:]))):
         return ".".join(labels[-3:])
     return ".".join(labels[-2:])
 
