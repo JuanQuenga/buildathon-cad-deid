@@ -34,7 +34,13 @@ STOP_UPPER = {"N/A", "TBD", "SEE", "ANY", "ALL", "THE", "AND", "FOR", "REV", "DW
               "ENG", "CHK", "APP", "DRN", "SIZE", "SCALE", "DATE", "NAME", "NONE", "NOTE", "ISO", "DIN"}
 LABEL_WORDS = re.compile(r"(?i)\b(drawn|checked|approved|date|datum|fecha|data|scale|sheet|title|name|signature|"
                          r"firma|material|weight|finish|rev|revision|tolerance|size|dwg|description|qty|part|"
-                         r"project|company|designed|created|by|of|no|nr|number|format)\b")
+                         r"project|company|designed|created|by|of|no|nr|number|format|versi[oóã]n?|vers[aã]o|"
+                         r"pl[àa]nol|plano|planos|dibuix|dibujo|desenho|escala|full|hoja|folha|blatt|revisi[oó]n?|"
+                         r"revis[aã]o|tractament|tratamiento|acabat|acabado|massa|peso|pes|unitats|unidades|"
+                         r"toler[àaâ]ncies|tolerancias|cotes|cotas|mètode|método|document|documento|projecte|"
+                         r"proyecto|projeto|conjunt|conjunto|mòdul|módulo|peça|pieza|caixetí|cajetín|zeichnung|"
+                         r"ma[ßs]stab|werkstoff|gewicht|oberfl[äa]che|benennung|ersatz|ers|urspr|stand|"
+                         r"[ée]chelle|feuille|mati[èe]re|masse|d[ée]signation|dessin[ée]|v[ée]rifi[ée])\b")
 
 
 ENG_NOUNS = set("""
@@ -58,9 +64,19 @@ def _ok_token(t):
     return bool(k) and k not in PLACEHOLDERS and k not in SOFTWARE and k not in ENG_NOUNS
 
 
+def _is_label(v: str) -> bool:
+    try:
+        from deid.formats._nativeutil import label_kind
+        return label_kind(v) is not None
+    except Exception:
+        return False
+
+
 def person_value(v: str):
     """Normalised person spelling or None."""
     v = v.strip().strip(":;,|")
+    if _is_label(v):
+        return None
     v = DATE_TAIL.sub("", v).strip().strip(":;,|")
     if not v or len(v) > 48 or any(ch.isdigit() for ch in v) or LABEL_WORDS.search(v):
         return None
@@ -96,6 +112,8 @@ ORG_TAIL = re.compile(r"(?i)\b(inc|corp|corporation|ltd|llc|gmbh|ag|kg|ohg|sa|sa
 
 def company_value(v: str):
     v = v.strip().strip(":;,|")
+    if _is_label(v):
+        return None
     if not v or len(v) > 60 or LABEL_WORDS.search(v) or any(ch.isdigit() for ch in v) or "," in v:
         return None
     toks = NAME_TOK.findall(v)
@@ -184,14 +202,31 @@ def extract(scan_db: str):
             ph = phone_value(value)
             if ph:
                 add(ph, "phone", top)
-    # the drawing's own number: a code in its file name that its title block repeats
-    for path, lines in tb_text.items():
-        stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-        text = " ".join(lines)
-        for tok in re.findall(r"[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*", stem):
-            cv = code_value(tok)
-            if cv and cv == tok and re.search(r"(?<![A-Za-z0-9])" + re.escape(tok) + r"(?![A-Za-z0-9])", text):
-                add(cv, "part_number", path.split("!/", 1)[0])
+    # the drawing's own number: a code in a PDF's file name that its title block repeats, or that
+    # a model/drawing file of the same project also carries (drawing <-> model correspondence)
+    def stem_codes(path):
+        stem = path.rsplit("/", 1)[-1]
+        stem = re.sub(r"(\.\d+)$", "", stem).rsplit(".", 1)[0]
+        return {t for t in re.findall(r"[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*", stem) if code_value(t) == t}
+
+    def ns(path):
+        parts = path.split("!/", 1)[0].split("/")
+        return "/".join(parts[:3]) if parts[0] == "sources" else parts[0]
+    others = collections.defaultdict(set)
+    pdfs = []
+    for (path,) in con.execute("SELECT path FROM files"):
+        if path.lower().endswith(".pdf"):
+            pdfs.append(path)
+        elif re.search(r"(?i)\.(sldprt|sldasm|slddrw|step|stp|iges|igs|ipt|iam|idw|dwg|dxf|catpart|catproduct|"
+                       r"catdrawing|par|asm|psm|dft|prt|drw|fcstd|f3d|x_t|sat|stl)(\.\d+)?$", path):
+            for c in stem_codes(path):
+                others[(ns(path), c.lower())].add(path)
+    for path in pdfs:
+        text = " ".join(tb_text.get(path, ()))
+        for tok in stem_codes(path):
+            in_tb = re.search(r"(?<![A-Za-z0-9])" + re.escape(tok) + r"(?![A-Za-z0-9])", text)
+            if in_tb or (ns(path), tok.lower()) in others:
+                add(tok, "part_number", path.split("!/", 1)[0])
     return found
 
 

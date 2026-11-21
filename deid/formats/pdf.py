@@ -1055,10 +1055,11 @@ def titleblock_observations(pages, out: list, prefix: str = "pdf.text"):
                 for j, (a0, b0, a1, b1, tt) in enumerate(lines):
                     if j == i or not tt.strip() or nu.label_kind(tt):
                         continue
-                    right = (abs(b0 - y0) < 0.6 * lh and 0 <= a0 - x1 < 12 * lh)
+                    right = (abs(b0 - y0) < 0.6 * lh and 0 <= a0 - x1 < 40 * lh)
                     below = (0 <= b0 - y1 < 2.2 * lh and abs(a0 - x0) < 6 * lh)
                     if right or below:
-                        d = (a0 - x1) if right else (b0 - y1) * 2
+                        # table-style title blocks put the value in the cell to the right: prefer it
+                        d = (a0 - x1) / 20.0 if right else (b0 - y1) * 2 + lh
                         if best is None or d < best[0]:
                             best = (d, tt.strip())
                 if best is not None:
