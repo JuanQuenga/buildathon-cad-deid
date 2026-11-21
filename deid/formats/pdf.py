@@ -1189,6 +1189,90 @@ def _fs_stream(fs):
     return None
 
 
+def _ocr_overlay_pages(pdf, src_path, pages, plan, ctx, counts) -> int:
+    """For pages without a text layer (scans, vector-outline text): render with
+    poppler, OCR, and cover each identity match with a background-coloured box
+    carrying the pseudonym in Helvetica (rotation aware).  Returns overlays."""
+    from deid.formats import _ocr
+    if not _ocr.available() or not shutil.which("pdftoppm") or not pages:
+        return 0
+    import time
+    from PIL import Image
+    dpi = int(os.environ.get("DEID_PDF_OCR_DPI", "150"))
+    budget = float(os.environ.get("DEID_PDF_OCR_BUDGET", "30"))
+    max_pages = int(os.environ.get("DEID_PDF_OCR_PAGES", "3"))
+    t0 = time.monotonic()
+    total = 0
+    for pi in sorted(pages)[:max_pages]:
+        if time.monotonic() - t0 > budget:
+            break
+        d = tempfile.mkdtemp(dir=ctx.tmp_dir or None)
+        try:
+            r = subprocess.run(["pdftoppm", "-q", "-r", str(dpi), "-f", str(pi + 1), "-l", str(pi + 1), "-png",
+                                "-singlefile", src_path, os.path.join(d, "p")], capture_output=True, timeout=120)
+            png = os.path.join(d, "p.png")
+            if r.returncode != 0 or not os.path.exists(png):
+                continue
+            img = Image.open(png).convert("RGB")
+            edits = _ocr.find_edits(img, plan, d)
+            if not edits:
+                continue
+            page = pdf.pages[pi]
+            cb = [float(v) for v in page.cropbox]
+            x0, y0, x1, y1 = min(cb[0], cb[2]), min(cb[1], cb[3]), max(cb[0], cb[2]), max(cb[1], cb[3])
+            rot = int(page.obj.get("/Rotate", 0) or 0) % 360
+            sc = dpi / 72.0
+
+            def to_user(u, v):
+                if rot == 90:
+                    return x0 + v / sc, y0 + u / sc
+                if rot == 180:
+                    return x1 - u / sc, y0 + v / sc
+                if rot == 270:
+                    return x1 - v / sc, y1 - u / sc
+                return x0 + u / sc, y1 - v / sc
+
+            tm = {0: (1, 0, 0, 1), 90: (0, 1, -1, 0), 180: (-1, 0, 0, -1), 270: (0, -1, 1, 0)}.get(rot, (1, 0, 0, 1))
+            ops = []
+            for (l, t, rr, b), text in edits:
+                pad = 2
+                l, t, rr, b = l - pad, t - pad, rr + pad, b + pad
+                bg = _ocr._bg_color(img, (max(l, 0), max(t, 0), min(rr, img.size[0] - 1), min(b, img.size[1] - 1)))
+                ink = _ocr._ink_color(img, (max(l + pad, 0), max(t + pad, 0), min(rr - pad, img.size[0] - 1),
+                                            min(b - pad, img.size[1] - 1)), bg)
+                ax, ay = to_user(l, t)
+                bx, by = to_user(rr, b)
+                rx, ry, rw, rh = min(ax, bx), min(ay, by), abs(bx - ax), abs(by - ay)
+                ops.append(f"{bg[0]/255:.3f} {bg[1]/255:.3f} {bg[2]/255:.3f} rg {rx:.2f} {ry:.2f} {rw:.2f} {rh:.2f} re f")
+                hpt = (b - t - 2 * pad) / sc
+                wpt = (rr - l - 2 * pad) / sc
+                enc = _encode_winansi(text)
+                txt = enc.decode("cp1252", "replace")
+                wu = _helv_width(txt) / 1000.0
+                fs = max(2.0, min(hpt * 1.3, (wpt * 1.05) / wu if wu else hpt))
+                # baseline: bottom-left of the word in screen terms, lifted by ~20% of height
+                bu, bv = l + pad, b - pad - 0.2 * (b - t - 2 * pad)
+                ox, oy = to_user(bu, bv)
+                lit = enc.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
+                ops.append(f"{ink[0]/255:.3f} {ink[1]/255:.3f} {ink[2]/255:.3f} rg BT /DeidHelv {fs:.2f} Tf "
+                           f"{tm[0]} {tm[1]} {tm[2]} {tm[3]} {ox:.2f} {oy:.2f} Tm (" + lit.decode("latin-1") + ") Tj ET")
+            res = page.obj.get("/Resources")
+            if not isinstance(res, Dictionary):
+                page.obj.Resources = Dictionary()
+                res = page.obj.Resources
+            _ensure_overlay_font(pdf, res)
+            page.contents_add(pdf.make_stream(b"q\n"), prepend=True)
+            body = ("\nQ\nq\n" + "\n".join(ops) + "\nQ\n").encode("latin-1")
+            page.contents_add(pdf.make_stream(body), prepend=False)
+            total += len(edits)
+        except Exception:
+            continue
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    counts["ocr_overlays"] = total
+    return total
+
+
 def _renders(path: str, page: int, tmp_dir: str = "") -> Optional[bool]:
     """True if poppler renders the page to a non-empty PNG, False if it fails,
     None on timeout."""
@@ -1428,6 +1512,9 @@ class PdfAdapter(Adapter):
                     nocr = _ocr.pdf_images(pdf, plan, ctx, ocr_mode, textless)
                     counts["ocr_regions"] = nocr
                     changed += nocr
+                    # vector-outline text / scans: overlay pseudonyms on text-less pages
+                    if textless and os.environ.get("DEID_PDF_OCR_OVERLAY", "1") == "1":
+                        changed += _ocr_overlay_pages(pdf, src_path, textless, plan, ctx, counts)
                 except Exception as e:
                     notes.append(f"ocr failed: {type(e).__name__}")
             if not changed:

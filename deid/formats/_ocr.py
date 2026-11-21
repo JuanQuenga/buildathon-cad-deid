@@ -247,13 +247,13 @@ def _fuzzy_edits(ln, plan, idx):
     return out
 
 
-def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
-    """Return (new_image or None, regions_replaced)."""
+def find_edits(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
+    """[((l, t, r, b), pseudonym)] for OCR'd words the plan replaces."""
     if TESSERACT is None or img.size[0] * img.size[1] > MAX_PIXELS:
-        return None, 0
+        return []
     words = [w for w in ocr_words(img, tmp_dir=tmp_dir) if w[4] >= min_conf or w[4] < 0]
     if not words:
-        return None, 0
+        return []
     edits = []
     fidx = _fuzzy_index(plan)
     for ln in _lines(words):
@@ -275,6 +275,12 @@ def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
             r = max(w[0] + w[2] for w in ws)
             b = max(w[1] + w[3] for w in ws)
             edits.append(((l, t, r, b), " ".join(nt[j1:j2])))
+    return edits
+
+
+def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
+    """Return (new_image or None, regions_replaced)."""
+    edits = find_edits(img, plan, tmp_dir, min_conf)
     if not edits:
         return None, 0
     from PIL import ImageDraw

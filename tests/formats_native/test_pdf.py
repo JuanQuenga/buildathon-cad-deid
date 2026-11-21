@@ -103,3 +103,28 @@ def test_tounicode_ranges():
     m, sp = parse_tounicode(data)
     assert m[0x41] == "a" and m[0x43] == "c" and m[0x51] == "y"
     assert sp == [(1, 0, 255)]
+
+
+@pytest.mark.skipif(not __import__("deid.formats._ocr", fromlist=["x"]).available(), reason="no tesseract")
+def test_pdf_textless_page_ocr(tmp_path, monkeypatch):
+    """A scanned (image-only) page: pixels are replaced and an overlay is added."""
+    from PIL import Image, ImageDraw, ImageFont
+    import io, zlib
+    monkeypatch.setenv("DEID_OCR_CACHE", str(tmp_path / "c"))
+    im = Image.new("L", (1200, 300), 255)
+    ImageDraw.Draw(im).text((40, 100), "DRAWN Alice Example", fill=0, font=ImageFont.load_default(size=56))
+    pdf = pikepdf.new()
+    pdf.add_blank_page(page_size=(600, 150))
+    page = pdf.pages[0]
+    img = pikepdf.Stream(pdf, zlib.compress(im.tobytes()), Type=Name.XObject, Subtype=Name.Image, Width=1200,
+                         Height=300, ColorSpace=Name.DeviceGray, BitsPerComponent=8, Filter=Name.FlateDecode)
+    page.obj.Resources = Dictionary(XObject=Dictionary(Im0=img))
+    page.obj.Contents = pdf.make_stream(b"q 600 0 0 150 0 0 cm /Im0 Do Q")
+    src, dst = str(tmp_path / "s.pdf"), str(tmp_path / "d.pdf")
+    pdf.save(src)
+    ad = PdfAdapter()
+    ctx = FileContext(logical_path="x/s.pdf", magic="pdf", tmp_dir=str(tmp_path))
+    r = ad.rewrite(ctx, src, dst, PLAN)
+    assert r.status == REWRITTEN and r.counts.get("ocr_overlays", 0) + r.counts.get("ocr_regions", 0) >= 1
+    assert ad.verify(ctx, src, dst, PLAN).ok
+    assert "Person Alpha" in _text(dst)
