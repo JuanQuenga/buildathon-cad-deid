@@ -152,8 +152,14 @@ class IdentityPlan:
         self._real_tokens = set()
         for e in self.entries.values():
             self._real_tokens.update(e.tokens)
+        self._frozen = False
         if token_aliases is None:
             self._build_token_registry()
+        # Tokens first seen at rewrite time (not in the plan) are checked only
+        # against this frozen registry, never against each other, so every
+        # worker derives the same alias regardless of call order.
+        self._frozen = True
+        self._used_frozen = frozenset(self._used)
         self.inventory = list(inventory)
         self._inv_index = None
         self._matcher = None
@@ -184,14 +190,16 @@ class IdentityPlan:
                 a = None
                 for attempt in range(64):
                     cand = alias_token(tok_key, self.secret, attempt).lower()
-                    if cand == tok_key or cand in self._used or cand in self._real_tokens:
+                    used = self._used_frozen if self._frozen else self._used
+                    if cand == tok_key or cand in used or cand in self._real_tokens:
                         continue
                     a = cand
                     break
                 if a is None:  # exhausted tiny space (2-char tokens): accept collision
                     a = alias_token(tok_key, self.secret, 0).lower()
             self._tok[tok_key] = a
-            self._used.add(a)
+            if not self._frozen:
+                self._used.add(a)
             return a
 
     def _render_tokens(self, text: str, keep=()) -> str:
