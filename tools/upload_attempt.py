@@ -98,8 +98,14 @@ def main():
         pats, values, _ = build_patterns(plan)
         sc = StrLeakScanner(pats)
         hits = sc.scan_file(os.path.join(att, "README.txt")) if os.path.exists(os.path.join(att, "README.txt")) else set()
-        if hits:
-            fails.append(f"README.txt contains {len(hits)} plan identifiers")
+        # names of the pipeline's own dependencies/tools in the credits are not leaks
+        deps = {"ezdxf", "pikepdf", "pdfminer", "pdfminer.six", "olefile", "pillow", "lxml", "numpy", "libarchive",
+                "libarchive-c", "pyahocorasick", "qpdf", "tesseract", "poppler", "gzip", "pytest", "uv", "python"}
+        real = [h for h in hits if values[h][0].lower() not in deps]
+        if len(real) < len(hits):
+            warns.append(f"README.txt: {len(hits) - len(real)} plan values equal dependency names (ignored)")
+        if real:
+            fails.append(f"README.txt contains {len(real)} plan identifiers")
         chits = 0
         for p, islink, sz in walk(os.path.join(att, "code")):
             if not islink and sz < 50_000_000 and sc.scan_file(p):
