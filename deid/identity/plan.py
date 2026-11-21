@@ -291,6 +291,8 @@ class IdentityPlan:
             return r if r != v else None
         e = self.entries.get("".join(key.split()))
         if e is not None:
+            if e.mode == FIELD and k in ("part_number", "part_name", "document_number", "free_text"):
+                return None   # generic-word entries only apply in identity slots (author, owner, ...)
             return self._render_entry(e, v)
         if k in IDENTITY_KINDS:
             if not any(ch.isalpha() for ch in key) and k != "phone":

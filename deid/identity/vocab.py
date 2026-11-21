@@ -34,6 +34,9 @@ werkstoff|blatt|datum|name|norm|fecha|plano|escala|dibujado|revisado|aprobado|no
 dessiné|dessine|vérifié|verifie|échelle|echelle|désignation|designation|folio|disegnato|controllato|
 approvato|scala|foglio|denominazione|tekenaar|getekend|gecontroleerd|schaal|blad|
 drawn by|checked by|approved by|designed by|scale|sheet of|tolerance|tolerances|finish|weight|
+design|designs|designer|detailed design|preliminary design|as designed|as built|as planned|prototype|
+manufacturing|mechanical|production|released|in work|draft|concept|conceptual|detail|details|version|
+revision|rev|new|copy|final|backup|old|sample|example|demo|template|standard|generic|none given|
 """.replace("\n", "").split("|") if x.strip()}
 
 # Software / CAD vendors and products.  They appear in format-required or

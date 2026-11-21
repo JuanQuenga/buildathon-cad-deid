@@ -72,3 +72,11 @@ class ProtectedVocabulary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FieldGuard(unittest.TestCase):
+    def test_field_entries_not_used_in_part_slots(self):
+        p = IdentityPlan([Entry("Zorbeline", "person", FIELD)], KEY)
+        self.assertIsNotNone(p.alias("Zorbeline", "person"))
+        self.assertIsNone(p.alias("Zorbeline", "part_number"))
+        self.assertIsNone(p.alias("design", "part_number"))
