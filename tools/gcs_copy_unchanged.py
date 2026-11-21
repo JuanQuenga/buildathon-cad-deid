@@ -132,11 +132,27 @@ def main():
     ap.add_argument("--workers", type=int, default=32)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--go", action="store_true")
+    ap.add_argument("--probe", action="store_true",
+                    help="read-only: list the earlier attempt and HEAD one of its objects, then stop")
     a = ap.parse_args()
     sb, sp = parse(a.src)
     db_, dp = parse(a.dst)
     att = os.path.abspath(a.attempt)
     tok = Tok(a.token_file)
+    if a.probe:
+        src = list_prefix(sb, sp, tok)
+        print(f"list {a.src}: OK, {len(src)} objects (upload.py needs this too)")
+        if not src:
+            return 1
+        key = sorted(src)[0]
+        conn = http.client.HTTPSConnection(HOST, timeout=60)
+        conn.request("HEAD", f"/{sb}/{enc(key)}", headers={"Authorization": f"Bearer {tok.get()}"})
+        r = conn.getresponse()
+        r.read()
+        print(f"HEAD one object: HTTP {r.status} -> "
+              + ("object reads are permitted: server-side copy should work (still try --go --limit 1 first)"
+                 if r.status == 200 else "object reads are NOT permitted: copies will fail; use upload.py only"))
+        return 0 if r.status == 200 else 2
     cache_p = att + ".md5cache.json"
     cache = json.load(open(cache_p)) if os.path.exists(cache_p) else {}
     items = local_items(att)
