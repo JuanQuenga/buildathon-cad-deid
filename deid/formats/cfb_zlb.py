@@ -108,3 +108,81 @@ def rewrite(data, accounts, cad_reference):
     if payload(updated) == new_raw and _xml_view(new_raw) is not None:
         return updated
     return None
+
+
+# ---------------------------------------------------------------------------
+# OLE round 2: saving accounts inside binary single-record ZLB streams (display lists, visual states)
+# ---------------------------------------------------------------------------
+MAX_BIN_SIZE = 64 << 20
+
+
+def payload_any(data, max_size=MAX_BIN_SIZE):
+    """payload() for binary records up to max_size (same single-record layout checks)."""
+    if len(data) < 32 or not data.startswith(MAGIC) or data[-8:] != bytes(8):
+        return None
+    size, compressed = struct.unpack_from("<II", data, 16)
+    if not (0 < size <= max_size and compressed == len(data) - 32):
+        return None
+    try:
+        dec = zlib.decompressobj()
+        result = dec.decompress(data[24:-8], size + 1)
+    except zlib.error:
+        return None
+    if not dec.eof or dec.unused_data or len(result) != size:
+        return None
+    return result
+
+
+def _case_like(src: str, alias: str) -> str:
+    if src.isupper():
+        return alias.upper()
+    if src.islower():
+        return alias.lower()
+    if src[:1].isupper() and src[1:].islower():
+        return alias[:1].upper() + alias[1:].lower()
+    return alias
+
+
+def rewrite_binary(data, pairs):
+    """Replace whole-word occurrences of the file's saving accounts (UTF-16LE and ANSI) with their
+    same-length aliases inside the inflated record, re-deflate to exactly the original compressed size.
+    Returns (new_data or None, reason)."""
+    raw = payload_any(data)
+    if raw is None:
+        return None, "layout"
+    buf = bytearray(raw)
+    spans = []
+    for orig, alias in pairs:
+        if len(orig) != len(alias):
+            continue
+        for enc in ("utf-16-le", "cp1252"):
+            try:
+                o = orig.encode(enc)
+                alias.encode(enc)
+            except UnicodeEncodeError:
+                continue
+            if enc == "utf-16-le":
+                pat = re.compile(rb"(?<![A-Za-z0-9]\x00)" + re.escape(o) + rb"(?![A-Za-z0-9]\x00)", re.I)
+            else:
+                pat = re.compile(rb"(?<![A-Za-z0-9])" + re.escape(o) + rb"(?![A-Za-z0-9])", re.I)
+            for m in pat.finditer(raw):
+                src = raw[m.start():m.end()].decode(enc, "replace")
+                rep = _case_like(src, alias).encode(enc)
+                if len(rep) != m.end() - m.start():
+                    continue
+                buf[m.start():m.end()] = rep
+                spans.append((m.start(), m.end()))
+    if not spans:
+        return None, "none"
+    new_raw = bytes(buf)
+    result = _deflate_exact(new_raw, len(data) - 32)
+    if result is None:
+        return None, "nofit"
+    updated = data[:24] + result + data[-8:]
+    if payload_any(updated) != new_raw:
+        return None, "verify"
+    # only the replaced byte ranges differ
+    diff = [i for i in range(len(raw)) if raw[i] != new_raw[i]] if len(raw) < 4_000_000 else None
+    if diff is not None and any(not any(a <= i < b for a, b in spans) for i in diff):
+        return None, "verify"
+    return updated, "ok"

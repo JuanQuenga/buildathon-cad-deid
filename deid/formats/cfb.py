@@ -497,7 +497,7 @@ def scrub_dead(path, regions):
 
 class CfbAdapter(Adapter):
     name = "cfb"
-    version = "4"
+    version = "5"
     priority = 10
     magics = ("cfb",)
     path_independent = False
@@ -594,6 +594,12 @@ class CfbAdapter(Adapter):
                 except (ValueError, OSError, IndexError, struct.error):
                     continue
             saving_accounts = accounts.AccountAliases(plan, originals)
+            zlb_pairs = []
+            if saving_accounts and os.environ.get("DEID_CFB_ZLB_BIN", "1") == "1":
+                from deid.identity.vocab import is_word
+                from deid.identity.plan import WINDOWS_ACCOUNTS
+                zlb_pairs = [(o, a) for pv, (o, a) in saving_accounts.aliases.items()
+                             if len(o) >= 5 and not is_word(pv) and pv not in WINDOWS_ACCOUNTS and len(o) == len(a)]
             for path in paths:
                 name = "/".join(path)
                 try:
@@ -656,6 +662,10 @@ class CfbAdapter(Adapter):
                         new = cfb_zlb.rewrite(data, saving_accounts, CAD_REF)
                         if new is not None:
                             counts["account_zlb_streams"] = counts.get("account_zlb_streams", 0) + 1
+                elif name.endswith("__ZLB") and zlb_pairs and not _ACCOUNT_PREVIEW.search(name):
+                    # OLE round 2: binary single-record ZLB streams (display lists, visual states)
+                    new, why = cfb_zlb.rewrite_binary(data, zlb_pairs)
+                    counts["zlb_bin_" + why] = counts.get("zlb_bin_" + why, 0) + 1
                 elif name.endswith("__ZLB") or _SKIP_STREAM.search(name) or len(data) > 64 << 20:
                     continue
                 else:
@@ -750,11 +760,17 @@ class CfbAdapter(Adapter):
                         if not _outside_strings_equal(da, db, pa):
                             return VerifyResult(ok=False, notes=["non-string property bytes changed"])
                     elif n.endswith("__ZLB"):
-                        pa, pb = cfb_zlb.payload(da), cfb_zlb.payload(db)
-                        if (not cfb_zlb.is_xml_stream(path) or _ACCOUNT_PREVIEW.search(n)
+                        xml = cfb_zlb.is_xml_stream(path)
+                        if xml:
+                            pa, pb = cfb_zlb.payload(da), cfb_zlb.payload(db)
+                        else:   # round 2: binary single-record records, same-length account edits only
+                            pa, pb = cfb_zlb.payload_any(da), cfb_zlb.payload_any(db)
+                        if (_ACCOUNT_PREVIEW.search(n)
                                 or da[:24] != db[:24] or da[-8:] != db[-8:]
                                 or pa is None or pb is None or len(pa) != len(pb)):
                             return VerifyResult(ok=False, notes=["compressed stream layout changed"])
+                        if not xml and sum(1 for x, y in zip(pa, pb) if x != y) > 4096:
+                            return VerifyResult(ok=False, notes=["binary record changed beyond account edits"])
         except Exception as e:
             return VerifyResult(ok=False, notes=[f"reopen failed: {type(e).__name__}"])
         return VerifyResult(ok=True, fingerprint={"streams_changed": changed})
