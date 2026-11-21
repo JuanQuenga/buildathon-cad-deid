@@ -373,7 +373,8 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
             b.stats["spread_to_field"] += 1
     plan = IdentityPlan(b.entries, secret, inventory,
                         meta={"stats": dict(b.stats), "tables": [os.path.basename(t) for t in tables],
-                              "alias_scope": os.environ.get("DEID_ALIAS_SCOPE", "token")})
+                              "alias_scope": os.environ.get("DEID_ALIAS_SCOPE", "token"),
+                              "path_keep_kinds": [k for k in os.environ.get("DEID_PATH_KEEP_KINDS", "").split(",") if k]})
     save_plan(plan, plan_dir)
     return plan
 

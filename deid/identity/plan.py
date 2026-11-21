@@ -181,6 +181,8 @@ class IdentityPlan:
         # share their surname alias) or "entry" (every identity gets its own pseudonym tokens, so two
         # identities never share a pseudonym token)
         self.alias_scope = self.meta.get("alias_scope", "token")
+        # entry kinds never applied to file and folder names (switch: e.g. drawing numbers stay in names)
+        self.path_keep_kinds = tuple(self.meta.get("path_keep_kinds", ()))
         self._ealias = {}
         if self.alias_scope == "entry":
             used = set(self._real_tokens)
@@ -202,6 +204,7 @@ class IdentityPlan:
                 self._alias_set.update(pt for pt, t in zip(parts, e.tokens) if pt != t)
         self.version = self.meta.get("version") or _hash(
             "plan", PLAN_FORMAT, hashlib.sha256(secret).hexdigest(), "scope=" + self.alias_scope,
+            "pathkeep=" + ",".join(self.path_keep_kinds),
             *sorted(f"{k}|{e.mode}|{','.join(e.keep)}" for k, e in self.entries.items()))
 
     # ------------------------------------------------------------------ tokens
@@ -334,7 +337,7 @@ class IdentityPlan:
         r = self.replace_text(v)
         return r if r != v else None
 
-    def replace_text(self, text: str) -> str:
+    def replace_text(self, text: str, skip_kinds=()) -> str:
         if not text:
             return text
         lw = text.lower()
@@ -342,7 +345,7 @@ class IdentityPlan:
         for s, e in self.matcher.finditer(text, lw):
             span = text[s:e]
             ent = self._lookup_span(span)
-            if ent is not None:
+            if ent is not None and ent.kind not in skip_kinds:
                 spans.append((s, e, self._render_entry(ent, span)))
         extra = []
         if "@" in text:
@@ -483,10 +486,11 @@ class IdentityPlan:
 
     # ------------------------------------------------------------------ paths
     def _map_component(self, comp: str, is_file: bool) -> str:
+        sk = self.path_keep_kinds
         if is_file:
             stem, suf = split_ext(comp)
-            return self.replace_text(stem) + suf
-        return self.replace_text(comp)
+            return self.replace_text(stem, sk) + suf
+        return self.replace_text(comp, sk)
 
     def _map_slot(self, bucket: str, comp: str, is_file: bool) -> str:
         """Structural identity slot: sources/<bucket>/<SLOT>/... or archives/<SLOT>."""
@@ -510,7 +514,7 @@ class IdentityPlan:
         if bucket == "web" or (not is_file and HOSTLIKE_RE.fullmatch(stem)):
             return self._render_domain(stem) + suf
         # catalog and others: dictionary only
-        return self.replace_text(stem) + suf
+        return self.replace_text(stem, self.path_keep_kinds) + suf
 
     def _keeps_stem(self, logical_path: str) -> bool:
         """True for Creo/CATIA files in a directory that also holds a Creo
