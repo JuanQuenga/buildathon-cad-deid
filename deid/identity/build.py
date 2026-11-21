@@ -248,6 +248,18 @@ class Builder:
                                   set(d.get("fields", ["discovered"])), "discovered")
 
 
+def identity_dirs(plan_dir):
+    """Where the private identity tables live (first existing wins):
+    $DEID_IDENTITY_DIR, <plan_dir>/../identity, <plan_dir>/../../identity,
+    <repo>/../../cad-deid/work/identity."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [os.environ.get("DEID_IDENTITY_DIR", ""),
+             os.path.join(os.path.dirname(os.path.abspath(plan_dir)), "identity"),
+             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(plan_dir))), "identity"),
+             os.path.normpath(os.path.join(here, "..", "..", "..", "..", "cad-deid", "work", "identity"))]
+    return [c for c in cands if c and os.path.isdir(c)]
+
+
 def read_manifest(path):
     out = []
     with open(path, encoding="utf-8") as f:
@@ -274,22 +286,40 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
         except sqlite3.Error:
             pass
     tables = list(extra_tables)
-    for name in ("curated.tsv", "discovered.tsv"):
-        p = os.path.join(os.path.dirname(os.path.abspath(plan_dir)), "identity", name)
-        if os.path.exists(p) and p not in tables:
-            tables.append(p)
+    for d in identity_dirs(plan_dir):
+        found = False
+        for name in ("curated.tsv", "discovered.tsv"):
+            p = os.path.join(d, name)
+            if os.path.exists(p) and p not in tables:
+                tables.append(p)
+                found = True
+        if found:
+            break
     for t in tables:
         if t.endswith(".jsonl"):
             b.from_jsonl(t)
         else:
             b.from_table(t)
     if secret is None:
-        sp = os.environ.get("DEID_SECRET_FILE") or os.path.join(plan_dir, "secret.key")
-        if os.path.exists(sp):
-            secret = open(sp, "rb").read()
-        else:
+        # One secret for every plan built on this machine, so aliases are identical
+        # across plan dirs, rebuilds and attempts.
+        idd = identity_dirs(plan_dir)
+        cands = [os.environ.get("DEID_SECRET_FILE", ""), os.path.join(plan_dir, "secret.key")]
+        cands += [os.path.join(d, "secret.key") for d in idd]
+        for sp in cands:
+            if sp and os.path.exists(sp):
+                with open(sp, "rb") as fh:
+                    secret = fh.read()
+                break
+        if secret is None:
             secret = os.urandom(32)
-    plan = IdentityPlan(b.entries, secret, inventory, meta={"stats": dict(b.stats)})
+            if idd:
+                sp = os.path.join(idd[0], "secret.key")
+                with open(sp, "wb") as fh:
+                    fh.write(secret)
+                os.chmod(sp, 0o600)
+    plan = IdentityPlan(b.entries, secret, inventory,
+                        meta={"stats": dict(b.stats), "tables": [os.path.basename(t) for t in tables]})
     save_plan(plan, plan_dir)
     return plan
 
