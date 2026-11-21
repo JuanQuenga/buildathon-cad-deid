@@ -32,7 +32,7 @@ from deid.pipeline.pool import Pool
 HARD_SIZE = 2_000_000_000         # "2 GB": use the decimal reading to be safe
 MAX_OBJECTS = 400_000
 MIN_PATTERN = 4
-BOUNDARY_BELOW = 8                # identifiers shorter than this must stand alone (not inside a word)
+BOUNDARY_BELOW = 1 << 30          # identifiers must stand alone (token boundaries, like the plan matcher)
 _ALNUM = set("abcdefghijklmnopqrstuvwxyz0123456789")
 SCAN_CAP = 512 << 20              # bytes per view in leak scan
 VIEW_DEPTH = 3
