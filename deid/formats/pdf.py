@@ -1606,7 +1606,7 @@ def _e5_value_ok(v: str) -> bool:
         return False
     if all(t.lower() in _E5_ENG_WORDS or t.lower() in _E5_FUNC or len(t) <= 1 for t in toks):
         return False
-    if len(toks) > 4:
+    if len(toks) > 6:
         return False                  # sentences and legal text are not cell values
     return True
 
@@ -1622,6 +1622,98 @@ def _e5_render(plan, v: str) -> Optional[str]:
     except Exception:
         return None
     return r if r != v and len(r) == len(v) else None
+
+
+# ---------------------------------------------------------------------------
+# E5+: unlabelled identities anywhere in the page text: given-name + surname, companies with a legal
+# suffix, schools/institutes/universities/labs, bylines ("By J. Moore")
+# ---------------------------------------------------------------------------
+_GIVEN = set("""
+aaron adam adrian adrià adrián agustín aitor alan albert alberto alejandro aleix alessandro alex alexander alexandre
+alexis alfonso alfred alfredo ali alice alicia alina alvaro álvaro amanda amy ana anders andrea andreas andrei andrés
+andrew andy angel ángel angela anna anne antoine anton antonio arnau arthur arturo axel ben benedikt benjamin bernard
+bernat bernd bjorn björn blanca bob borja brian bruno carl carla carles carlo carlos carmen carolina caroline catherine
+cesar césar charles charlotte chen chris christian christina christine christoph christophe christopher claire clara
+claudia claudio colin cristian cristina dani daniel daniela daniele dario david davide denis dennis diana diego dieter
+dimitri dirk dmitry dominik dominique eduard eduardo elena elias elisa emil emilio emily emma enric enrique eric erik
+ernesto esteban esther eugenio eva fabian fabio federico felipe felix félix fernando filip florian francesc francesca
+francesco francisco franck frank franz frederic frédéric friedrich gabriel gabriele georg george georges gerard gerhard
+giacomo gianluca giorgio giovanni giulia giuseppe gonzalo gregor guido guillaume guillem guillermo gustavo hannah hans
+harald harry heinrich heinz helena helmut henrik henry hugo ian ignacio igor ilya ines inés irene isaac isabel ivan iván
+jack jacob jakob jakub james jan jana jaume javier jean jeff jeffrey jens jeremy jérôme jesús jim joan joao joão joaquim
+joaquín joe joel johan johann johannes john jon jonas jonathan jordi jorge jose josé josef joseph josep juan judith
+julia julian julián julien julio julius jürgen justin karin karl katharina kevin klaus kristian lars laura laurent lea
+leo leon leonardo lisa llorenç lorenzo louis luca lucas lucía luis luís luisa lukas luke manuel marc marcel marcello
+marco marcos marcus maria maría mariano mario mark markus marta martin martín mateo mathias matías matteo matthew
+matthias max maxim maximilian michael michel miguel mikel mohamed monica mónica nathan nicolas nicolás nicola niklas
+nikolai nils noah norbert oliver olivier omar oriol oscar óscar pablo paolo pascal patricia patrick pau paul paula paulo
+pavel pedro pere peter petr philipp philippe pierre pietro pol rafael rafa ralf ramon ramón raquel raúl raul rebecca
+reinhard ricard ricardo richard rob robert roberto robin rodrigo roger roland roman ronald rubén ruben rudolf ryan
+salvador samuel sandra sara sarah sebastian sebastián sergi sergio simon simone stefan stefano stephan stephane stéphane
+steve steven susanne sven teresa thomas thorsten tim timo tobias tom tomás tomas toni tony ulrich uwe valentin vicenç
+vicente victor víctor vincent wei werner william wolfgang xavier xavi yannick yuki yusuf zhang
+""".split())
+_E14_NAME = re.compile(r"(?<![\w.])([A-ZÀ-Ý][a-zà-ÿ'’]{1,15}|[A-ZÀ-Ý]{2,15})((?:[ \-](?:[A-ZÀ-Ý]\.|[A-ZÀ-Ý][a-zà-ÿ'’]{1,20}|[A-ZÀ-Ý]{2,20})){1,3})(?![\w])")
+_E14_ORG = re.compile(r"(?<![\w])((?:[A-Z0-9][\w&’'\-.]*\s){0,5}?[A-Z0-9][\w&’'\-.]*,?\s(?:GmbH|Inc\.?|Ltd\.?|LLC|S\.L\.U?\.?|S\.A\.U?\.?|"
+                      r"AG|B\.V\.|BV|Corp\.?|Corporation|Limited|SRL|S\.r\.l\.|Oy|AB|SAS|SARL|Co\.,? Ltd\.?|Mfg\.?|Engine Works|"
+                      r"Works|Laboratory|Lab|Labs|Robotics|Technologies|Systems|Industries))(?![\w])")
+_E14_INST = re.compile(r"(?<![\w])((?:(?:[A-Z][\w’'\-]+|of|de|del|für|fur|di|du|la|des)\s){0,4}?"
+                       r"(?:Institute|Institut|University|Universit[äaà]t?|Universidad|Universitat|Universidade|Hochschule|"
+                       r"Fachhochschule|College|Lycée|Lycee|Escola|Escuela|École|Ecole|Gymnasium|Polytechnic|Politecnico|"
+                       r"Academy|Akademie)(?:\s(?:of|de|del|für|fur|di|du|la|des|[A-Z][\w’'\-]+)){0,5})(?![\w])", re.I)
+_E14_BY = re.compile(r"(?<![\w])(?:By|BY|Von|VON|Por|POR|Par|PAR|Author|Autor|Auteur)[:\s]+((?:[A-Z]\.\s?){0,3}[A-Z][A-Za-zà-ÿ'’\-]{1,20}(?:\s[A-Z][A-Za-zà-ÿ'’\-]{1,20}){0,2})")
+_E14_AMBIG = set("mark max will grant bill frank rose may june art chip dean drew gene guy jack lance miles nick pat ray "
+                 "rob robin victor van sky august bob tony".split())
+_E14_FUNC = set("of de del für fur di du la des the and y et und".split())
+
+
+def _e14_name_ok(first: str, rest: str) -> bool:
+    from deid.identity.vocab import is_word
+    toks = [first] + [t for t in re.split(r"[ \-]", rest.strip()) if t]
+    if first.lower() not in _GIVEN:
+        return False
+    last = toks[-1].rstrip(".")
+    if len(last) <= 1 or last.lower() in _E5_ENG_WORDS or last.lower() in _E5_FUNC or last.lower() in _TB_GENERIC:
+        return False
+    if (is_word(first.lower()) or first.lower() in _E14_AMBIG) and any(is_word(t.lower().rstrip(".")) for t in toks[1:]):
+        return False                         # "Mark Holes", "Max Speed"
+    return True
+
+
+def e14_candidates(text: str) -> list:
+    out = []
+    for st in re.finditer(r"(?<![\w.])[A-ZÀ-Ý]", text):
+        m = _E14_NAME.match(text, st.start())
+        if not m or m.group(1).lower() not in _GIVEN:
+            continue
+        rest = [x for x in re.findall(r"[ \-][^ \-]+", m.group(2))]
+        for k in range(len(rest), 0, -1):
+            r = "".join(rest[:k])
+            if _e14_name_ok(m.group(1), r):
+                out.append(m.group(1) + r)
+                break
+    for m in _E14_ORG.finditer(text):
+        v = m.group(1).strip()
+        toks = v.split()
+        while toks and (toks[0].lower() in _E14_FUNC or toks[0].lower() in _E5_FUNC):
+            toks = toks[1:]
+        if len(toks) >= 2:
+            out.append(" ".join(toks))
+    for m in _E14_INST.finditer(text):
+        v = m.group(1).strip()
+        toks = v.split()
+        while toks and toks[0].lower() in _E14_FUNC:
+            toks = toks[1:]
+        while toks and toks[-1].lower() in _E14_FUNC:
+            toks = toks[:-1]
+        if len(toks) >= 2:
+            out.append(" ".join(toks))
+    for m in _E14_BY.finditer(text):
+        from deid.identity.vocab import is_word
+        v = m.group(1).strip()
+        if re.match(r"[A-Z]\.", v) or not all(is_word(t.lower().rstrip(".")) for t in v.split() if len(t) > 2):
+            out.append(v)
+    return out
 
 
 def e5_identities(src_path, plan):
@@ -1647,6 +1739,8 @@ def e5_identities(src_path, plan):
                     cands.append(m.group(1).strip())
             for m in _E5_VENDOR_RX.finditer(t):
                 cands.append(m.group(1))
+            if os.environ.get("DEID_PDF_E14", "1") == "1":
+                cands.extend(e14_candidates(t))
             # LABEL: value on one line
             m = re.match(r"^(.{2,30}?)\s*[:：]\s*(.{2,60})$", t)
             if m and _e5_label(m.group(1)) not in (None, "skip"):
@@ -1794,7 +1888,7 @@ def e13_extras(ctx, src_path, plan, counts) -> dict:
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e13"
+    version = "2e14"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
