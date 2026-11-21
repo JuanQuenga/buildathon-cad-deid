@@ -75,3 +75,22 @@ def test_step_protected_vocabulary(tmp_path):
     assert b"'mechanical'" in out and b"core data for automotive" in out
     assert b"Person Alpha" in out
     assert not any("AUTOMOTIVE_DESIGN" in o.value for o in sr.observations)
+
+
+def test_step_malformed_quote_left_alone(tmp_path, plan):
+    data = STEP.replace(b"#8=SHAPE_REPRESENTATION('Bracket_Main',(#4),#7);",
+                        b"#8=APPLIED_EXTERNAL_IDENTIFICATION_ASSIGNMENT('Bracket_Main'.STEP',#4,#7);\r\n"
+                        b"#10=SHAPE_REPRESENTATION('x Jane Roe',(#4),#7);")
+    sr, rr, vr, out = run_adapter(tmp_path, "step", "m.step", data, plan)
+    assert sr.status == "source_exception"
+    # bytes between the stray quote and the next quote are never treated as a string
+    assert b"',#4,#7);\r\n#10=SHAPE_REPRESENTATION('" in out
+    assert b"#1=PRODUCT('PART-0001','Part_Gamma'" in out   # well-formed part still processed
+
+
+def test_prestandard_step(tmp_path, plan):
+    data = (b"/* setup file */\n\nSTEP;\nHEADER;\n FILE_IDENTIFICATION('A/B.STEP','1991',('Jane Roe','Room 1'),"
+            b"('Acme Widgets'),'v1','none','x');\nENDSEC;\nDATA;\n@1 = CARTESIAN_POINT ( , 0.0, 0.0, 0.0);\nENDSEC;\n")
+    sr, rr, vr, out = run_adapter(tmp_path, "step", "s.step", data, plan)
+    assert b"('Person Alpha','Room 1'),('Company Beta')" in out
+    assert b"@1 = CARTESIAN_POINT ( , 0.0, 0.0, 0.0);" in out
