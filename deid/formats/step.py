@@ -33,6 +33,7 @@ _BORING = rb"NONE| +|\?|\*"
 TOK = re.compile(
     rb"(?:[^'/]++|''(?!')|'(?:" + _BORING + rb")'(?!')|/(?!\*))*+"
     rb"('(?:[^']++|'')*+'|/\*.*?\*/)", re.S)
+_MTOK = re.compile(rb"'[^']*'|/\*.*?\*/", re.S)
 SKIP = re.compile(rb"(?:[^'/]++|''(?!')|/(?!\*))*+")
 
 # Context parsing of a record prefix
@@ -355,14 +356,14 @@ class _Stream:
             n = len(buf)
             pos = 0
             rec = 0
-            match = TOK.match
-            while True:
-                m = match(buf, pos)
-                if m is None:
-                    break
-                s, e = m.span(1)
+            # Mask doubled quotes (empty strings and escapes) and the commonest vocabulary
+            # string; the remaining quotes pair up exactly like Part 21 string delimiters,
+            # so a search for single-quoted runs finds only non-empty strings, at C speed.
+            mk = buf.replace(b"''", b"\0\0").replace(b"'NONE'", b"\0NONE\0")
+            last_e = 0
+            for m in _MTOK.finditer(mk):
+                s, e = m.span()
                 if not eof and e >= n - 1:
-                    # a token touching the end might be truncated ('...'' or comment); retry with more data
                     break
                 j = buf.rfind(b";", pos, s)
                 if j >= 0:
@@ -371,19 +372,21 @@ class _Stream:
                     yield "pass", buf, pos, s, -1
                 yield ("cmt" if buf[s] == 0x2F else "str"), buf, s, e, rec
                 pos = e
-            # tail: no complete interesting token from pos
             if eof:
                 if pos < n:
                     yield "pass", buf, pos, n, -1
                 return
-            k = SKIP.match(buf, pos).end()
-            lim = min(k, n - 4)
+            # tail from pos holds no complete token; cut at the last ';' before any
+            # unclosed quote or comment opener
+            lim = n - 2
+            q = mk.find(b"'", pos, lim)
+            if q >= 0:
+                lim = q
+            c = mk.find(b"/*", pos, lim)
+            if c >= 0:
+                lim = c
             cut = buf.rfind(b";", pos, lim)
-            if cut >= 0:
-                cut += 1
-            else:
-                cut = buf.rfind(b"\n", pos, lim)
-                cut = cut + 1 if cut >= 0 else pos
+            cut = cut + 1 if cut >= 0 else pos
             if cut > pos:
                 yield "pass", buf, pos, cut, -1
             carry = buf[cut:]
@@ -403,7 +406,7 @@ def _is_ascii_file(path: str) -> bool:
 
 class StepAdapter(Adapter):
     name = "step"
-    version = "1"
+    version = "2"
     priority = 10
     magics = ("step",)
     extensions = (".step", ".stp", ".p21")
@@ -539,7 +542,7 @@ class StepAdapter(Adapter):
         b = masked_fingerprint(dst_path)
         notes = []
         ok = True
-        for k in ("masked_sha256", "strings", "comments", "records"):
+        for k in ("masked_sha256", "strings", "records"):
             if a[k] != b[k]:
                 ok = False
                 notes.append(f"{k} differs")
@@ -583,13 +586,8 @@ def masked_fingerprint(path: str, chunk: int = 32 << 20) -> dict:
                     part, carry = buf[:cut], buf[cut:]
             if ascii_ and not part.isascii():
                 ascii_ = False
-            toks = _VTOK.findall(part)
-            for t in toks:
-                if t[:1] == b"'":
-                    nstr += 1
-                else:
-                    ncmt += 1
-            masked = _VTOK.sub(b"\x00", part)
+            masked, k = _MTOK.subn(b"\x00", part.replace(b"''", b"\x01\x01"))
+            nstr += k
             h.update(masked)
             nrec += masked.count(b";")
             if not data:
