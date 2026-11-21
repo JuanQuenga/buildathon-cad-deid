@@ -1375,6 +1375,136 @@ def _label_kind(text: str) -> Optional[str]:
     return None
 
 
+import unicodedata as _ud
+
+
+def _fold(t: str) -> str:
+    """Case- and accent-insensitive key of a token (Víctor = VICTOR = victor, length-stable for Latin)."""
+    return "".join(c for c in _ud.normalize("NFKD", t.lower()) if not _ud.combining(c))
+
+
+_SPREAD = None
+
+
+def _spread() -> dict:
+    """{folded token: number of source namespaces whose PDFs contain it}, written by tools/pdf_spread.py
+    into the private work dir (DEID_PDF_SPREAD). Tokens absent from the table are rare (< 3 namespaces)."""
+    global _SPREAD
+    if _SPREAD is None:
+        _SPREAD = {}
+        f = os.environ.get("DEID_PDF_SPREAD", "")
+        if f and os.path.exists(f):
+            try:
+                import json, gzip
+                op = gzip.open if f.endswith(".gz") else open
+                with op(f, "rt", encoding="utf-8") as fh:
+                    _SPREAD = {k: int(v) for k, v in json.load(fh).items()}
+            except Exception:
+                _SPREAD = {}
+    return _SPREAD
+
+
+_SWEEP_KINDS = {"person", "company", "account", "project", "project_token", "account_token", "email_local"}
+_GLOBAL_SWEEP: dict = {}
+
+
+def _global_sweep_tokens(plan) -> dict:
+    """Distinctive tokens of the plan's people/companies/accounts/projects (every mode, field-only entries
+    too): >= 4 letters, not an English word, rare across the corpus. They are replaced wherever they stand
+    in any PDF (other word order, accents, line breaks, initials+surname), with the plan's own token alias."""
+    base = getattr(plan, "_p", plan)
+    g = _GLOBAL_SWEEP.get(id(base))
+    if g is not None:
+        return g
+    from deid.identity.vocab import is_word
+    sp = _spread()
+    maxdf = int(os.environ.get("DEID_PDF_SWEEP_GLOBAL_MAXDF", "6"))
+    g = {}
+    for e in getattr(base, "entries", {}).values():
+        if getattr(e, "kind", "") not in _SWEEP_KINDS:
+            continue
+        for t in TOKEN_RE.findall(e.value):
+            f = _fold(t)
+            if len(f) < 4 or any(ch.isdigit() for ch in f) or not f.isalpha():
+                continue
+            if is_word(f) or f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf:
+                continue
+            g.setdefault(f, norm_token(t) if norm_token(t) == f else f)
+    _GLOBAL_SWEEP.clear()
+    _GLOBAL_SWEEP[id(base)] = g
+    return g
+
+
+def sweep_tokens(lp, texts) -> dict:
+    """Completeness pass for one PDF: every token this PDF already gets replaced somewhere (plan entries,
+    title-block cells, boilerplate owners ...) is replaced at every other occurrence too - other lines,
+    phrases broken over two lines, unlabelled repeats, accent/case variants - plus the plan's distinctive
+    identity tokens (_global_sweep_tokens). Returns {folded token: alias key}; the alias is the plan's
+    deterministic token alias, so the same token reads the same in every PDF."""
+    if os.environ.get("DEID_PDF_SWEEP", "1") != "1" or not texts:
+        return {}
+    sp = _spread()
+    maxdf = int(os.environ.get("DEID_PDF_SWEEP_LOCAL_MAXDF", "11"))
+    base = getattr(lp, "_p", lp)
+    real = getattr(base, "_real_tokens", set())
+    aliases = getattr(base, "_alias_set", set())
+    local = {}
+    for page in texts:
+        for line in page.splitlines():
+            if not line.strip():
+                continue
+            try:
+                r = lp.replace_text(line)
+            except Exception:
+                continue
+            if r == line:
+                continue
+            a, b = TOKEN_RE.findall(line), TOKEN_RE.findall(r)
+            pairs = []
+            if len(a) == len(b):
+                pairs = [(x, y) for x, y in zip(a, b) if x != y]
+            else:
+                sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+                for tag, i1, i2, j1, j2 in sm.get_opcodes():
+                    if tag == "replace" and i2 - i1 == j2 - j1:
+                        pairs += [(x, y) for x, y in zip(a[i1:i2], b[j1:j2]) if x != y]
+            for x, _ in pairs:
+                f = _fold(x)
+                if len(f) < 3 or not any(ch.isalpha() for ch in f) or f.isdigit():
+                    continue
+                if len(f) == 3 and not x.isupper():
+                    continue                        # 3 letters: only initials (CFK, DWS)
+                if f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf:
+                    continue
+                if not sp and len(f) >= 4:
+                    from deid.identity.vocab import is_word
+                    if is_word(f):
+                        continue
+                local.setdefault(f, norm_token(x))
+    out = {}
+    if os.environ.get("DEID_PDF_SWEEP_GLOBAL", "1") == "1":
+        g = _global_sweep_tokens(lp)
+        if g:
+            seen = set()
+            for page in texts:
+                for t in TOKEN_RE.findall(page):
+                    f = _fold(t)
+                    if f in g and f not in seen:
+                        seen.add(f)
+                        out[f] = g[f]
+    out.update(local)
+    # alias key: the spelling the plan already knows (so 'Víctor' reads like the plan's 'VICTOR');
+    # never sweep a token that is itself one of our pseudonyms
+    res = {}
+    for f, k in out.items():
+        if k in aliases and k not in real:
+            continue
+        if f in real or f in getattr(base, "_tok", {}):
+            k = f
+        res[f] = k
+    return res
+
+
 class _LocalPlan:
     """Plan + identities read from this PDF's own title block (people, companies, phones next to
     recognised labels, initial+surname / honorific lines). Each extra value gets the pseudonym the plan
@@ -1382,9 +1512,10 @@ class _LocalPlan:
     person gets the same pseudonym in every PDF without changing the plan or any other file.
     Part/document numbers are deliberately not added here (they also name model files)."""
 
-    def __init__(self, plan, extras):
+    def __init__(self, plan, extras, sweep=None):
         self._p = plan
         self.extras = []
+        self.sweep = dict(sweep or {})      # folded token -> alias key (see sweep_tokens)
         for value, alias in sorted(extras.items(), key=lambda kv: -len(kv[0])):
             rx = re.compile(r"(?<![\w])" + r"\s+".join(re.escape(t) for t in value.split()) + r"(?![\w])", re.I)
             self.extras.append((rx, alias))
@@ -1392,10 +1523,22 @@ class _LocalPlan:
     def __getattr__(self, name):
         return getattr(self._p, name)
 
+    def _sweep_sub(self, m):
+        t = m.group(0)
+        key = self.sweep.get(_fold(t))
+        if key is None:
+            return t
+        a = self._p._token_alias(key)
+        if len(a) != len(t):
+            return t
+        return "".join(c.upper() if o.isupper() else c for o, c in zip(t, a))
+
     def replace_text(self, text):
         r = self._p.replace_text(text)
         for rx, alias in self.extras:
             r = rx.sub(alias, r)
+        if self.sweep and r:
+            r = TOKEN_RE.sub(self._sweep_sub, r)
         return r
 
     def alias(self, value, kind=None):
@@ -1566,24 +1709,63 @@ _E5_FUNC = set("""
 the by of and or to in on at for a an is be as it no not with from this that de la el los las del en y o
 der die das und von zu im am mit le les et du des un une il di e da do dos em por para
 """.split())
-_E5_VENDORS = ["molex", "te connectivity", "mcmaster-carr", "mcmaster carr", "mcmaster", "texas instruments",
-               "nexperia", "digi-key", "digikey", "mouser", "misumi", "igus", "festo", "bosch rexroth", "hiwin",
-               "maxon motor", "faulhaber", "analog devices", "microchip technology", "stmicroelectronics",
-               "infineon", "vishay", "murata", "würth elektronik", "wurth elektronik", "amphenol", "harting",
-               "phoenix contact", "weidmüller", "weidmuller", "keysight technologies", "keysight", "4d systems",
-               "hammond manufacturing", "adafruit", "sparkfun", "pololu", "seeed studio", "on semiconductor",
-               "onsemi", "nxp semiconductors", "rohm semiconductor", "diodes incorporated", "littelfuse",
-               "bourns", "kemet", "panasonic", "omron", "schneider electric", "siemens", "norelem", "ganter",
-               "kipp", "item industrietechnik", "boschrexroth", "openbuilds", "ooznest", "lulzbot", "prusa research"]
-_E5_VENDOR_RX = re.compile(r"(?<![\w])(" + "|".join(re.escape(v).replace(r"\ ", r"[\s\-]?") for v in
-                                                   sorted(_E5_VENDORS, key=len, reverse=True)) + r")(?![\w])", re.I)
+# Component vendors (public catalogue companies: connectors, motion, fasteners, distributors). Kept as
+# salted SHA-256 digests of the lower-cased, separator-free name so the shipped code holds matching logic,
+# not a table of real names; a line's 1-3 token windows are hashed and looked up.
+_E5_VENDOR_H = frozenset([
+    "07347711cc22c4719c66", "0dd2c2c3ecc5a15e8234", "11ba6cddd8c77f0f7f88", "17b615e670151b505850",
+    "1a4de5fb44b4721016e9", "20e6ec865c2f7eb595f6", "249963cbbf3d8067ede9", "260776f39bb588d2dade",
+    "2875d36c09273366d0f5", "2a775a7c76a1bffb97cb", "32b8bed41967c00a564a", "3602e124a27348201d32",
+    "3ab47ab9e8bbc8f06f38", "4a19b68e612d40f0e42a", "4a47d277f54682bf9b73", "502d30f58eb05819e039",
+    "5034dd271637565dc359", "5501fe7c9f030487610d", "61873bbdaa67995b32fe", "6493b6c275307db1190a",
+    "6508b46ac3d8f2c03109", "668e4090a5109f2ed640", "66ccccc5616f70ba4b43", "6b52a917b23d4a9fa87d",
+    "6cb376d434be69126004", "72638ba3fe6d3fba04c1", "746676ae9e45c74d7e67", "7598e57555f8d310336f",
+    "7a299c29ee24586f66d1", "7e680bfa5df5028ae424", "86386e5f9ecc37f89bd3", "88332c02e5827575bfbf",
+    "8d629e14d44fe9d87566", "90666d03704ec91fb31c", "921eddbae905a312b2b1", "9e471cdfa6eb48148c4c",
+    "a2c7375d5a66196abb27", "a5276ed99a87e2a01bc4", "a654ea0366fe0d163389", "a69fe96341d645f74bab",
+    "ab508f253b7ad4210ab1", "b11b20f7bdb5fec6bc02", "b1a9ad19ddafc58ff73c", "b2324be05b9388ed1471",
+    "bca1aeb827aa6ca9476c", "bf7929b290b3e22e4950", "c01589790e3ecffea67c", "c152eabc7f7d23861560",
+    "cef92bfb53ce3342bbac", "d8e667e4b3b29a413af7", "e6bebfa8df480832281a", "e6f659797516f60fdb53",
+    "e7c1cdd4cb6a67956df7", "e7e1a44a3350271989cd", "fe0b7e19a808f04a168a", "ff32f63514ce5209df26",
+])
+
+
+def _e5_vendor_hits(t: str):
+    toks = list(re.finditer(r"[^\W_]+", t))
+    out = []
+    i = 0
+    while i < len(toks):
+        hit = None
+        for n in (3, 2, 1):
+            if i + n > len(toks):
+                continue
+            seg = toks[i:i + n]
+            if any(t[a.end():b.start()] not in ("", " ", "-") for a, b in zip(seg, seg[1:])):
+                continue
+            k = "".join(m.group(0) for m in seg).lower()
+            if hashlib.sha256(("deid-vendor:" + k).encode()).hexdigest()[:20] in _E5_VENDOR_H:
+                hit = (n, t[seg[0].start():seg[-1].end()])
+                break
+        if hit:
+            out.append(hit[1])
+            i += hit[0]
+        else:
+            i += 1
+    return out
+
+
 _E5_BOILER = [
     re.compile(r"(?i)(?:property of|propiedad de|propri[ée]t[ée] (?:de|d['’])|eigentum (?:der|des|von)|propriet[àa] (?:di|della)|"
                r"propietat de|propriedade d[aeo]s?)\s+(?:the\s+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\band\b|\bis\b|\bunless\b|\bany\b|\by\b|\bet\b|\bund\b|\be\b))"),
-    re.compile(r"(?i)(?:©|\(c\)|copyright)\s*(?:\(c\)\s*)?(?:\d{4}(?:\s*[-–,]\s*\d{2,4})*\s*)?(?:by\s+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\ball rights\b|\bunless\b|\d))"),
+    re.compile(r"(?i)(?:©|\(c\)|copyright)\s*(?:\(c\)\s*)?(?:\d{4}(?:\s*[-–,]\s*\d{2,4})*\s*)?(?:by[:\s]+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\ball rights\b|\bunless\b|\d))"),
     re.compile(r"(?i)\b(all rights reserved|alle rechte vorbehalten|todos los derechos reservados|tous droits r[ée]serv[ée]s)\b"),
     re.compile(r"(?i)(<?\s*(?:insert\s+)?(?:your\s+)?company(?:\s+name)?(?:\s+here)?\s*>?)"),
 ]
+
+
+_E25_OWNER_END = re.compile(r"(?i)(?:property of(?: the)?|sole property of(?: the)?|propiedad(?: exclusiva)? de(?: la| el)?|"
+                            r"eigentum (?:der|des|von)|propri[ée]t[ée] (?:de|d['’])|propriet[àa] (?:di|della)|propietat de|"
+                            r"propriedade d[aeo]s?|permission of(?: the)?)\s*[:,]?$")
 
 
 def _e5_label(t: str):
@@ -1645,8 +1827,13 @@ def e5_identities(src_path, plan):
             for rx in _E5_BOILER:
                 for m in rx.finditer(t):
                     cands.append(m.group(1).strip())
-            for m in _E5_VENDOR_RX.finditer(t):
-                cands.append(m.group(1))
+            if _E25_OWNER_END.search(t):
+                lh0 = max(y1 - y0, 1.0)
+                nxt = sorted((b0 - y1, tt) for (a0, b0, a1, b1, tt) in lines
+                             if 0 <= b0 - y1 < 2.5 * lh0 and a0 < x1 + 5 * lh0 and a1 > x0 - 5 * lh0 and tt.strip())
+                if nxt:
+                    cands.append(" ".join(nxt[0][1].split()).rstrip(".,;"))
+            cands.extend(_e5_vendor_hits(t))
             # LABEL: value on one line
             m = re.match(r"^(.{2,30}?)\s*[:：]\s*(.{2,60})$", t)
             if m and _e5_label(m.group(1)) not in (None, "skip"):
@@ -1684,7 +1871,7 @@ def e5_identities(src_path, plan):
 def slot_names(plan, logical_path: str) -> dict:
     """{value: kind} for the repo owner / project names of the path's structural slot
     (sources/github|gitlab/OWNER__REPO/..., archives/OWNER__REPO__sha.zip!/...): the whole pieces,
-    and their tokens that are not dictionary words (BCN3D, OpenLoong). The path map renders the
+    and their tokens that are not dictionary words (made-up brand tokens). The path map renders the
     slot with the same token aliases, so text and path stay consistent."""
     from deid.identity.vocab import is_word
     from deid.identity.plan import SHA_PIECE_RE
@@ -1987,7 +2174,7 @@ def scrub_nontext_streams(pdf, plan, counts) -> int:
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e23"
+    version = "2e25"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -2122,12 +2309,21 @@ class PdfAdapter(Adapter):
             return RewriteResult(status=SOURCE_EXCEPTION, notes=[f"unreadable PDF: {type(e).__name__}"])
         children = []
         extras, stems = e13_extras(ctx, src_path, plan, counts)
-        plan = _LocalPlan(plan, extras)
+        base_plan = plan
+        plan = _LocalPlan(base_plan, extras)
         plan._deid_stems = stems
         with pdf:
             changed = 0
             # 1. content streams (only pages whose extracted text has an identity)
             texts = _pdftotext_pages(src_path)
+            try:
+                sw = sweep_tokens(plan, texts)
+            except Exception:
+                sw = {}
+            counts["sweep_tokens"] = len(sw)
+            if sw:
+                plan = _LocalPlan(base_plan, extras, sw)
+                plan._deid_stems = stems
             cand = set()
             if texts is None:
                 cand = set(range(len(pdf.pages)))
