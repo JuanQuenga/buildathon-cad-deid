@@ -11,7 +11,7 @@ alternating between them; a file is "done" when its size matches and, where
 the manifest has an MD5, the MD5 matches. Verified files are recorded in
 <dest>/.acquire-done so reruns skip them without re-hashing.
 """
-import argparse, hashlib, os, subprocess, sys, threading, time
+import argparse, hashlib, http.client, os, subprocess, sys, threading, time, urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASES = [
@@ -39,6 +39,8 @@ def main():
     ap.add_argument("--min-size", type=int, default=0, help="only files with at least this many bytes")
     ap.add_argument("--max-size", type=int, default=-1, help="only files below this many bytes")
     ap.add_argument("--smallest-first", action="store_true")
+    ap.add_argument("--keepalive", action="store_true",
+                    help="fetch with persistent HTTPS connections (fast for small files)")
     args = ap.parse_args()
     dest = os.path.abspath(args.dest)
     os.makedirs(dest, exist_ok=True)
@@ -69,6 +71,35 @@ def main():
     donef = open(done_path, "a", encoding="utf-8")
     print(f"{len(rows)} files {total} bytes; {len(todo)} to fetch", flush=True)
 
+    local = threading.local()
+
+    def get_keepalive(base, url, out):
+        u = urllib.parse.urlsplit(f"{base}/{url}")
+        conns = getattr(local, "conns", None)
+        if conns is None:
+            conns = local.conns = {}
+        for attempt in range(3):
+            c = conns.get(u.netloc)
+            if c is None:
+                c = conns[u.netloc] = http.client.HTTPSConnection(u.netloc, timeout=60)
+            try:
+                c.request("GET", u.path, headers={"User-Agent": UA})
+                r = c.getresponse()
+                data = r.read()
+            except (OSError, http.client.HTTPException):
+                conns.pop(u.netloc, None)
+                try:
+                    c.close()
+                except Exception:
+                    pass
+                continue
+            if r.status == 200:
+                tmp = out + ".part"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, out)
+            return
+
     def fetch(i, row):
         path, size, md5, url = row
         out = os.path.join(dest, path)
@@ -83,7 +114,9 @@ def main():
             else:
                 if os.path.exists(out) and os.path.getsize(out) > size:
                     os.unlink(out)
-                if not (os.path.exists(out) and os.path.getsize(out) == size):
+                if not (os.path.exists(out) and os.path.getsize(out) == size) and args.keepalive:
+                    get_keepalive(base, url, out)
+                elif not (os.path.exists(out) and os.path.getsize(out) == size):
                     subprocess.run(["curl", "-fsS", "-A", UA, "--retry", "5", "--retry-connrefused",
                                     "--retry-delay", "2", "--connect-timeout", "20", "--speed-limit", "10000",
                                     "--speed-time", "60", "-C", "-", "-o", out, f"{base}/{url}"],
