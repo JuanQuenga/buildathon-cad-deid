@@ -68,7 +68,9 @@ TITLEBLOCK_STOP = {norm_key(x).replace(" ", "") for x in (
     "drawing part number description item comments notes eng engineer by of a b c d the and for "
     "ok yes no n/a tbd see note general"
 ).split()}
-VENDOR_TOKENS = {"zwcad", "steptools", "sdrc", "transcendata", "kubotek", "ugs", "unigraphics", "datakit",
+VENDOR_TOKENS = {"alibre", "intergraph", "zemax", "hexagon", "bentley", "microstation", "vectorworks", "nemetschek",
+                 "graphisoft", "esprit", "mastercam", "gibbscam", "hypermill", "openmind", "cimatron", "zwsoft",
+                 "zwcad", "steptools", "sdrc", "transcendata", "kubotek", "ugs", "unigraphics", "datakit",
                  "cadexchanger", "elysium", "theorem", "terraform", "proficiency", "solidworks", "dassault", "systèmes", "systemes", "autodesk", "ptc", "siemens", "microsoft",
                  "adobe", "spatial", "parasolid", "catia", "inventor", "creo", "onshape", "freecad", "kicad"}
 DATE_LIKE = re.compile(r"\d{1,2}:\d{2}|\d+\s*[年月日]|\b(19|20)\d\d[-/.]\d\d?[-/.]\d\d?\b|"

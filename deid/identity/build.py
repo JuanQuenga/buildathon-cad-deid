@@ -53,6 +53,8 @@ def _mode_for(value, *, strong=True, kind=None):
     if len(c) < 4 or c.isdigit():
         return FIELD
     toks = key.split()
+    if kind in ("person", "account", "username") and len(toks) == 1 and len(c) < 5:
+        return FIELD  # short single names ('igor', 'Dach'): only where they sit in an identity field
     if kind in NAME_KINDS and len(toks) >= 2 and sum(len(t) >= 2 for t in toks) >= 2 and len(c) >= 6:
         return FLEX  # 'Rose Hunter': dictionary words, but a full name is an identity
     if _all_generic(value):
@@ -203,8 +205,11 @@ class Builder:
             local, _, dom = v.partition("@")
             if dom:
                 self.add_domain(dom, origin + ".email", label_flex=False)
-            if local and norm_key(local) not in PLACEHOLDERS and len(_compact(local)) >= 3:
-                self.add(local, "email_local", FLEX if len(_compact(local)) >= 4 else FIELD, (), origin)
+            from .plan import GENERIC_MAILBOXES
+            lk = norm_key(local)
+            if local and lk not in PLACEHOLDERS and lk not in GENERIC_MAILBOXES and len(_compact(local)) >= 3:
+                strong = len(_compact(local)) >= 5 and not all(is_plain_token(t) for t in lk.split())
+                self.add(local, "email_local", FLEX if strong else FIELD, (), origin)
             return
         if kind == "domain":
             self.add_domain(v, origin + ".domain", label_flex=False)
