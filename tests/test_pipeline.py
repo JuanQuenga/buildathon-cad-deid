@@ -69,11 +69,12 @@ def reg():
     (".badv", "fallback_copy", b"original"),
     (".slow", "fallback_copy", b"original"),
     (".good", "rewritten", b"ORIGINAL"),
-    (".unknownext", "copied_unsupported", b"original"),
+    (".unknownext", "copied_unsupported", b"\x00\x01\x02\x03binary"),
 ])
 def test_golden_rule(tmp_path, ext, status, content):
     src = tmp_path / f"f{ext}"
-    src.write_bytes(b"original")
+    # binary bytes for the no-adapter case (the generic text adapter claims plain text)
+    src.write_bytes(content if ext == ".unknownext" else b"original")
     proc = core.Processor(tmp_root=str(tmp_path))
     ctx, head = proc.make_ctx(f"x/f{ext}", str(src))
     dst = tmp_path / "out" / f"f{ext}"

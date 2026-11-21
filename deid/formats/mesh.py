@@ -528,12 +528,12 @@ def _vrml_escape(b: bytes) -> bytes:
 
 
 _VRML_URL_CTX = re.compile(rb"(?:url|Inline|ImageTexture|MovieTexture|AudioClip|Anchor|filename|"
-                           rb"parameter|EXTERNPROTO)\s*\[?\s*(?:\"[^\"]*\"\s*,?\s*)*$")
+                           rb"parameter|EXTERNPROTO)\s*\[?\s*(?:\"[^\"]*\"\s*+,?\s*+)*+$")
 
 
 class VrmlAdapter(Adapter):
     name = "vrml"
-    version = "1"
+    version = "2"
     priority = 10
     magics = ("vrml",)
     extensions = (".wrl", ".vrml", ".wrz")

@@ -16,7 +16,8 @@ from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult
                       REWRITTEN, VERIFIED_UNCHANGED, SOURCE_EXCEPTION)
 from deid.formats._neutral import PlanCache, ObsCollector, looks_like_reference, ref_kind
 
-_NUM = re.compile(rb"^[ \t]*(?:[-+]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][-+]?\d+)?[ \t]*)*$")
+# possessive/atomic: the old nested-quantifier form backtracked exponentially on long digit runs
+_NUM = re.compile(rb"^[ \t]*+(?>[-+]?(?:\d++(?:\.\d*+)?|\.\d++)(?:[EeDd][-+]?\d++)?[ \t]*+)*+$")
 _DELIM = re.compile(rb"^ {4}-1[ \t]*$")
 _DSID = re.compile(rb"^[ \t]*(\d+)([a-zA-Z]?)")
 FIELD_151 = {0: ("model_file", "path"), 1: ("model_description", "free_text"), 2: ("program", "software"),
@@ -65,7 +66,7 @@ def _dec(b):
 
 class UnvAdapter(Adapter):
     name = "unv"
-    version = "2"
+    version = "3"
     priority = 8
     magics = ()
     extensions = (".unv", ".uff")
