@@ -1298,9 +1298,132 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
              "/CreationDate": None, "/ModDate": None, "/Trapped": None}
 
 
+class _LocalPlan:
+    """Plan + identities read from this PDF's own title block (people, companies, phones next to
+    recognised labels, initial+surname / honorific lines). Each extra value gets the pseudonym the plan
+    itself would give it (plan.alias with an identity kind: deterministic token aliases), so the same
+    person gets the same pseudonym in every PDF without changing the plan or any other file.
+    Part/document numbers are deliberately not added here (they also name model files)."""
+
+    def __init__(self, plan, extras):
+        self._p = plan
+        self.extras = []
+        for value, alias in sorted(extras.items(), key=lambda kv: -len(kv[0])):
+            rx = re.compile(r"(?<![\w])" + r"\s+".join(re.escape(t) for t in value.split()) + r"(?![\w])", re.I)
+            self.extras.append((rx, alias))
+
+    def __getattr__(self, name):
+        return getattr(self._p, name)
+
+    def replace_text(self, text):
+        r = self._p.replace_text(text)
+        for rx, alias in self.extras:
+            r = rx.sub(alias, r)
+        return r
+
+    def alias(self, value, kind=None):
+        a = self._p.alias(value, kind)
+        if a is None and value:
+            for rx, al in self.extras:
+                if rx.fullmatch(value.strip()):
+                    return al
+        return a
+
+
+_LOCAL_STOP = set("""
+the this that such for check drill building with from into each also note notes see per all any and or not
+duplicated used permission prohibited reproduction dimensions millimetres millimeters inches unless otherwise
+specified property confidential proprietary drawing drawings copyright rights reserved without written
+consent information contained about us tolerance tolerances scale sheet title material finish weight date
+""".split())
+_GERMAN_NOUN = re.compile(r"(?i)(ung|teil|bau|satz|deckel|breite|glas|lager|ring|platte|halter|schraube|welle|"
+                          r"geh[äa]use|keit|heit|st[üu]ck|scheibe|bolzen|mutter|buchse|h[üu]lse|rad|lasche|winkel)$")
+
+
+def _local_ok(v):
+    toks = re.findall(r"[^\W\d_][^\W\d_'’\-]*", v)
+    if not 2 <= len(toks) <= 3 or any(ch in v for ch in "/Ø()") or v.count(".") > 2:
+        return False
+    for t in toks:
+        tl = t.lower()
+        if tl in _LOCAL_STOP or (len(t) > 3 and _GERMAN_NOUN.search(t)):
+            return False
+    return True
+
+
+def local_titleblock_identities(src_path, plan):
+    """{value: pseudonym} for identities of this PDF that the plan does not replace: names next to
+    person labels (every nearby cell is tried, table layouts included), initial+surname and
+    honorific names anywhere on the page, companies and phones next to their labels."""
+    if os.environ.get("DEID_PDF_LOCAL_IDS", "1") != "1":
+        return {}
+    try:
+        from deid.identity.pdfids import person_value, company_value, phone_value, _ok_token, ORG_TAIL
+        from deid.identity.vocab import is_word
+    except Exception:
+        return {}
+    try:
+        pages = _bbox_lines(src_path, max_pages=8)
+    except Exception:
+        return {}
+    cands = []                                   # (value, kind)
+    name_in_line = re.compile(r"(?<![\w.])(?:[A-ZÀ-ÖØ-Þ]\.\s?[A-ZÀ-ÖØ-Þ][a-zà-ÿ'’\-]{2,}|"
+                              r"(?:Hr|Herr|Fr|Frau|Mr|Mrs|Ms|Dr|Prof)\.?\s+[A-ZÀ-ÖØ-Þ][a-zà-ÿ'’\-]{2,})(?![\w])")
+    for W, H, lines in pages:
+        for i, (x0, y0, x1, y1, t) in enumerate(lines):
+            t = t.strip()
+            if not t:
+                continue
+            for m in name_in_line.finditer(t):
+                cands.append((m.group(0), "name_pattern"))
+            k = nu.label_kind(t)
+            if k not in ("person", "company", "contact"):
+                continue
+            lh = max(y1 - y0, 1.0)
+            near = []
+            for j, (a0, b0, a1, b1, tt) in enumerate(lines):
+                if j == i or not tt.strip():
+                    continue
+                if abs(b0 - y0) < 0.6 * lh and a0 >= x1 - 1:
+                    near.append((0, a0 - x1, tt))
+                elif 0 <= b0 - y1 < 2.5 * lh and a0 < x1 and a1 > x0 - 2 * lh:
+                    near.append((1, b0 - y1, tt))
+            for _, _, tt in sorted(near)[:4]:
+                if nu.label_kind(tt):
+                    continue
+                cands.append((tt.strip(), k))
+    out = {}
+    for raw, kind in cands:
+        if kind == "name_pattern":
+            sur = re.split(r"[.\s]+", raw.strip())[-1]
+            ok = _ok_token(sur) and sur.lower() not in _LOCAL_STOP and not (len(sur) <= 5 and is_word(sur.lower()))
+            v, kind = (raw.strip() if ok else None), "person"
+        elif kind == "person":
+            v = person_value(raw)
+            if v and not _local_ok(v):
+                v = None
+        elif kind == "company":
+            v = company_value(raw)
+            if v and not ORG_TAIL.search(v):
+                v = None
+        else:
+            v, kind = phone_value(raw), "phone"
+        if not v or len(v) < 3 or v in out:
+            continue
+        if plan.replace_text(v) != v:
+            continue                     # already an identity of the plan
+        try:
+            a = plan.alias(v, "account" if (kind == "person" and v.isupper() and len(v) <= 4) else kind)
+        except Exception:
+            a = None
+        if a and a != v and len(a) == len(v):
+            out[v] = a
+    return out
+
+
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "3"
+    version = "4"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1418,6 +1541,10 @@ class PdfAdapter(Adapter):
         except Exception as e:
             return RewriteResult(status=SOURCE_EXCEPTION, notes=[f"unreadable PDF: {type(e).__name__}"])
         children = []
+        extras = local_titleblock_identities(src_path, plan)
+        if extras:
+            plan = _LocalPlan(plan, extras)
+            counts["local_titleblock_ids"] = len(extras)
         with pdf:
             changed = 0
             # 1. content streams (only pages whose extracted text has an identity)
