@@ -46,7 +46,7 @@ INFRA_DOMAINS = (
     "localhost", "readthedocs.io", "readthedocs.org", "stackoverflow.com", "doi.org", "arxiv.org",
     "schema.org", "openxmlformats.org", "autodesk.com", "kicad.org", "python.org", "nodejs.org",
     "wikipedia.org", "archive.org", "matplotlib.org", "mathworks.com", "monotype.com", "linotype.com",
-    "fonts.com", "typekit.com", "amazon.com", "openssl.org", "jquery.com", "bootstrapcdn.com", "w3.org", "git-scm.com", "apache.org", "eclipse.org", "debian.org",
+    "fonts.com", "typekit.com", "fontawesome.com", "bambulab.com", "prusa3d.com", "ultimaker.com", "amazon.com", "openssl.org", "jquery.com", "bootstrapcdn.com", "w3.org", "git-scm.com", "apache.org", "eclipse.org", "debian.org",
     "ubuntu.com", "microsoft.com", "apple.com", "google.com", "mozilla.org", "gnu.org", "fsf.org",
 )
 
@@ -106,6 +106,8 @@ def _ok_value(v: str) -> bool:
 
 def _ok_value1(v: str) -> bool:
     k = norm_key(v)
+    if k and all(t in PLACEHOLDERS or t in EXTRA_PLACEHOLDERS for t in k.split()):
+        return False
     if not k or k in PLACEHOLDERS or k in SOFTWARE or k in EXTRA_PLACEHOLDERS:
         return False
     if BAD_VALUE.match(v.strip()):
@@ -140,6 +142,8 @@ def _name_like(v: str) -> bool:
 
 def _domain_ok(d: str) -> bool:
     d = d.lower().strip(".")
+    if d.startswith(("schemas.", "schema.", "ns.", "xmlns.", "purl.", "fonts.")):
+        return False
     if "." not in d or not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,12}", d):
         return False
     for p in PROTECTED_DOMAINS + INFRA_DOMAINS:
@@ -189,8 +193,11 @@ def classify(paths_obs, trust_fields=False):
                         add(host, "domain", path, field)
                     continue
                 # "DOMAIN\\user (MACHINE)" style
-                for part in re.split(r"[\\]|\s*\(|\)", v):
-                    part = part.strip()
+                for em in EMAIL_RE.finditer(v):
+                    add(em.group(0), "email", path, field)
+                v = EMAIL_RE.sub(" ", v)
+                for part in re.split(r"[\\;|]|\s*[(\[<]|[)\]>]", v):
+                    part = part.strip().strip(",:-")
                     if part and _ok_value(part) and (".label." not in field or _name_like(part)):
                         add(part, kind, path, field)
     rows = []
