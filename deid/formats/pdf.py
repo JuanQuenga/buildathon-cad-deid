@@ -1624,6 +1624,45 @@ def _e5_render(plan, v: str) -> Optional[str]:
     return r if r != v and len(r) == len(v) else None
 
 
+_E19_EN_LABEL = re.compile(r"(?i)^(?:date|rev(?:ision)?|scale|size|material|weight|signature|sheet|finish|"
+                           r"part(?: no| number)?|description|drawing(?: no| number)?|dwg(?: no)?|title|project|qty|"
+                           r"quantity|item(?: no)?|units|tolerances?|drawn(?: by)?|checked(?: by)?|approved(?: by)?|"
+                           r"designed(?: by)?|name|chk'?d|appv'?d|mfg|q\.?a\.?|eng|engineer|projection|"
+                           r"treatment|coating|surface finish|general tolerances?)[\s.:#]*$")
+_E19_KEEP = set("""
+steel stainless aluminium aluminum alu brass copper bronze iron cast titanium abs pla petg nylon pom delrin acetal
+acrylic pmma polycarbonate ptfe teflon peek rubber silicone wood plywood mdf plastic glass carbon fibre fiber
+stahl edelstahl messing kupfer guss acero aluminio inox acier laiton kunststoff anodized anodised zinc plated
+galvanized galvanised chrome nickel black natural mm cm inch inches none n/a na tbd iso din ansi
+a0 a1 a2 a3 a4 a5 deg degrees metric imperial
+""".split())
+
+
+def _e19_value_ok(v: str) -> bool:
+    v = v.strip()
+    if not (2 <= len(v) <= 60) or any(ch.isdigit() for ch in v):
+        return False
+    toks = TOKEN_RE.findall(v)
+    if not toks or len(toks) > 4 or not any(any(ch.isalpha() for ch in t) and len(t) > 1 for t in toks):
+        return False
+    if all(t.lower() in _E19_KEEP or t.lower() in _E5_FUNC or len(t) <= 1 for t in toks):
+        return False
+    return True
+
+
+def _e19_render(plan, v: str) -> Optional[str]:
+    def sub(m):
+        t = m.group(0)
+        if any(ch.isdigit() for ch in t) or t.lower() in _E19_KEEP or len(t) <= 1:
+            return t
+        return plan._render_tokens(t)
+    try:
+        r = TOKEN_RE.sub(sub, v)
+    except Exception:
+        return None
+    return r if r != v and len(r) == len(v) else None
+
+
 def e5_identities(src_path, plan):
     """{value: pseudonym}: (a) the cell to the right of / below every label-like cell of a person,
     company, project, part-name, document-number, contact or address label in any of our languages
@@ -1652,7 +1691,8 @@ def e5_identities(src_path, plan):
             if m and _e5_label(m.group(1)) not in (None, "skip"):
                 cands.append(m.group(2))
             k = _e5_label(t) or _e5_label(t.rstrip(":："))
-            if k in (None, "skip"):
+            e19 = os.environ.get("DEID_PDF_E19", "1") == "1" and bool(_E19_EN_LABEL.match(t))
+            if k in (None, "skip") and not e19:
                 continue
             lh = max(y1 - y0, 1.0)
             right, below = [], []
@@ -1664,9 +1704,25 @@ def e5_identities(src_path, plan):
                 elif 0 <= b0 - y1 < 2.5 * lh and a0 < x1 and a1 > x0 - 2 * lh:
                     below.append((b0 - y1, tt))
             for _, tt in sorted(right)[:2] + sorted(below)[:1]:
-                cands.append(" ".join(tt.split()))
+                if k in (None, "skip"):
+                    cands.append(("\x00e19", " ".join(tt.split())))   # neighbour of an English sheet label
+                else:
+                    cands.append(" ".join(tt.split()))
     out = {}
     for v in cands:
+        if isinstance(v, tuple):
+            v = v[1].strip().strip(":：;,")
+            if v in out or not _e19_value_ok(v):
+                continue
+            try:
+                if plan.replace_text(v) != v:
+                    continue
+            except Exception:
+                continue
+            a = _e19_render(plan, v)
+            if a:
+                out[v] = a
+            continue
         v = v.strip().strip(":：;,")
         if v in out or not _e5_value_ok(v):
             continue
@@ -1794,7 +1850,7 @@ def e13_extras(ctx, src_path, plan, counts) -> dict:
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e13"
+    version = "2e19"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
