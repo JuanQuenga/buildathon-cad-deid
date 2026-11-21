@@ -1783,6 +1783,11 @@ def _e16_canon(tok: str) -> str:
 
 
 def _e16_alias(plan, tok: str) -> str:
+    # the same token alias the plan and the E5 cell renderer use (one pseudonym per original token)
+    try:
+        return plan._render_tokens(tok)
+    except Exception:
+        pass
     key = _e16_canon(tok)
     if any("\u2e80" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" or "\u3040" <= ch <= "\u30ff" for ch in key):
         return plan._render_tokens(tok)
