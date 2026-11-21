@@ -75,7 +75,11 @@ def summary(path, kind):
     shape = r.OneShape()
     box = Bnd_Box()
     BRepBndLib.Add_s(shape, box)
-    bb = tuple(round(x, 6) for x in box.Get()) if not box.IsVoid() else ()
+    if box.IsVoid():
+        bb = ()
+    else:
+        lo, hi = box.CornerMin(), box.CornerMax()
+        bb = tuple(round(v, 6) for v in (lo.X(), lo.Y(), lo.Z(), hi.X(), hi.Y(), hi.Z()))
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape, props)
     return {"read": 0, "roots": r.NbShapes(), "solids": count(shape, TopAbs_SOLID),
