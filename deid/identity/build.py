@@ -55,6 +55,8 @@ def _mode_for(value, *, strong=True, kind=None):
     toks = key.split()
     if kind in ("person", "account", "username") and len(toks) == 1 and len(c) < 5:
         return FIELD  # short single names ('igor', 'Dach'): only where they sit in an identity field
+    if kind == "account" and len(toks) >= 2 and len(c) >= 8:
+        return FLEX  # 'Source-Robotics' owner handle == 'Source Robotics' organisation
     if kind in NAME_KINDS and len(toks) >= 2 and sum(len(t) >= 2 for t in toks) >= 2 and len(c) >= 6:
         return FLEX  # 'Rose Hunter': dictionary words, but a full name is an identity
     if _all_generic(value):
@@ -111,10 +113,10 @@ class Builder:
             if m:
                 self.add(lab, "domain_label", m, (), origin)
 
-    def add_repo_piece(self, piece, kind, origin):
+    def add_repo_piece(self, piece, kind, origin, kind_mode=False):
         if not piece or SHA_PIECE_RE.match(piece) or norm_key(piece) in PLACEHOLDERS:
             return
-        mode = _mode_for(piece) or FIELD
+        mode = _mode_for(piece, kind=kind if kind_mode else None) or FIELD
         toks = TOKEN_RE.findall(piece)
         if (mode == FLEX and len(toks) == 1 and is_generic_token(toks[0])
                 and self.spread.get(norm_token(toks[0]), 0) > self.MAX_TOKEN_SPREAD):
@@ -174,7 +176,7 @@ class Builder:
                 if pieces and SHA_PIECE_RE.match(pieces[-1]) and len(pieces) > 1:
                     pieces = pieces[:-1]
                 if pieces:
-                    self.add_repo_piece(pieces[0], "account", f"path.{bucket}.owner")
+                    self.add_repo_piece(pieces[0], "account", f"path.{bucket}.owner", kind_mode=True)
                 for x in pieces[1:]:
                     self.add_repo_piece(x, "project", f"path.{bucket}.repo")
                 if len(pieces) >= 2:  # 'owner/repo' spelled with a slash is matched component-wise
