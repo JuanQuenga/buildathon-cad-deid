@@ -24,6 +24,7 @@ from deid.formats._neutral import PlanCache, ObsCollector, looks_like_reference,
 _AT = re.compile(rb"@(\d{1,9}) ")
 _HDR1 = re.compile(rb"\s*(\d+) +(-?\d+) +(-?\d+) +(-?\d+)")
 _INT = re.compile(rb"(\d{1,6}) ")
+_COUNTED_START = re.compile(rb"\d+ \S")   # candidate content that itself looks like '<n> text'
 _OLDTOK = re.compile(rb"(\$?-?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?|#|\S+)")
 _BORING = {b"unknown", b"plain", b"color", b"phong", b"none", b"ambient factor", b"diffuse factor",
            b"specular factor", b"exponent", b"specular color", b"transparency", b"reflection",
@@ -177,7 +178,8 @@ class _Sat:
                 # counted string: exactly k bytes, followed by a space (or end of record)
                 if (k > 0 and m.end() < L and line[m.end():m.end() + 1] == b" " and e <= L
                         and (e == L or line[e:e + 1] in (b" ", b"\r")) and re.search(rb"[A-Za-z]", line[s:e])
-                        and not line[s:e].startswith((b"$", b"#"))):
+                        and not line[s:e].startswith((b"$", b"#"))
+                        and not _COUNTED_START.match(line, s)):
                     yield base + s, base + e, base + p, base
                     p = e
                     continue
@@ -225,7 +227,7 @@ def _is_sat(head: bytes) -> bool:
 
 class SatAdapter(Adapter):
     name = "sat"
-    version = "2"
+    version = "3"
     priority = 9
     magics = ()
     extensions = (".sat", ".sab", ".asat")
