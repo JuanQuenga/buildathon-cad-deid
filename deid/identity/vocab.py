@@ -49,6 +49,10 @@ st-developer|step tools|steptools|theorem|datakit|cadexchanger|cad exchanger|ely
 okino|polytrans|meshlab|cura|ultimaker cura|prusaslicer|slic3r|simplify3d|netfabb|materialise|
 magics|3d builder|3mf consortium|3dsmax|maya|lightwave|cinema 4d|sketchfab|thingiverse|grabcad|
 github|gitlab|bitbucket|sourceforge|google drive|dropbox|onedrive|
+nvidia|jetson|jetson nano|jetson xavier|jetson orin|raspberry|raspberry pi|raspberrypi|arduino|arduino uno|
+arduino nano|arduino mega|esp32|esp8266|stm32|teensy|beaglebone|realsense|intel realsense|kinect|dynamixel|
+ros|ros2|nema17|nema 17|nema23|nema 23|intel|amd|xilinx|nucleo|pixhawk|ardupilot|px4|vesc|gopro|logitech|
+
 iso|din|ansi|asme|jis|gb|bs|en|iec|astm|sae|nema|ieee|w3c|xmp|adobe xmp|
 """.replace("\n", "").split("|") if x.strip()}
 

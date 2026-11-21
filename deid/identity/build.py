@@ -50,6 +50,9 @@ def _mode_for(value, *, strong=True, kind=None):
         return None
     if key in SOFTWARE:
         return FIELD
+    toks0 = key.split()
+    if all(t in PLACEHOLDERS or t in SOFTWARE or t.isdigit() or len(t) <= 2 for t in toks0):
+        return None  # 'Config-0', 'Default 2', 'Part1 A': placeholders/vendor words + numbers
     if len(c) < 4 or c.isdigit():
         return FIELD
     toks = key.split()

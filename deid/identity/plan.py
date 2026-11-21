@@ -155,6 +155,7 @@ class IdentityPlan:
         self._tok = dict(token_aliases or {})
         self._tok_lock = threading.Lock()
         self._used = set(self._tok.values())
+        self._alias_set = set(self._tok.values())   # every alias token ever produced (idempotence)
         self._real_tokens = set()
         for e in self.entries.values():
             self._real_tokens.update(e.tokens)
@@ -205,6 +206,7 @@ class IdentityPlan:
                 if a is None:  # exhausted tiny space (2-char tokens): accept collision
                     a = alias_token(tok_key, self.secret, 0).lower()
             self._tok[tok_key] = a
+            self._alias_set.add(a)
             if not self._frozen:
                 self._used.add(a)
             return a
@@ -216,6 +218,8 @@ class IdentityPlan:
             k = norm_token(t)
             if k in keep or len(k) <= 1 or k in ORG_DESIGNATORS or k in HOST_KEEP_TOKENS:
                 return t
+            if k in self._alias_set and k not in self._real_tokens:
+                return t  # already a pseudonym: never alias twice (idempotence)
             a = self._token_alias(k)
             if len(a) != len(t):
                 return t
