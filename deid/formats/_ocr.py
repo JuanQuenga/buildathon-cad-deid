@@ -135,6 +135,31 @@ def _bg_color(img, box):
     return Counter(px).most_common(1)[0][0]
 
 
+def _ink_color(img, box, bg):
+    """Most common colour inside the box that is clearly not the background."""
+    from collections import Counter
+    l, t, r, b = box
+    c = Counter()
+    step = max(1, (r - l) * (b - t) // 4000)
+    i = 0
+    for y in range(t, b + 1):
+        for x in range(l, r + 1):
+            i += 1
+            if i % step:
+                continue
+            px = img.getpixel((x, y))
+            a = px if isinstance(px, tuple) else (px, px, px)
+            g = bg if isinstance(bg, tuple) else (bg, bg, bg)
+            if sum(abs(int(a[k]) - int(g[k])) for k in range(3)) > 150:
+                c[px] += 1
+    if not c:
+        return _fg_color(bg)
+    # prefer the most saturated/dark among the top candidates (anti-aliasing produces mid tones)
+    cand = [p for p, _ in c.most_common(5)]
+    g = bg if isinstance(bg, tuple) else (bg, bg, bg)
+    return max(cand, key=lambda p: sum(abs(int((p if isinstance(p, tuple) else (p, p, p))[k]) - int(g[k])) for k in range(3)))
+
+
 def _fg_color(bg):
     lum = sum(bg[:3]) / 3 if isinstance(bg, tuple) else bg
     return (0, 0, 0) if lum > 127 else (255, 255, 255)
@@ -175,20 +200,22 @@ def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
         pad = 1
         box = (max(l - pad, 0), max(t - pad, 0), min(r + pad, work.size[0] - 1), min(b + pad, work.size[1] - 1))
         bg = _bg_color(work, box)
+        fg = _ink_color(work, box, bg)
         draw.rectangle(box, fill=bg)
         if not text.strip():
             continue
         h = max(b - t, 6)
-        size = h
+        bw = max(r - l, 6)
+        size = max(6, int(h * 1.35))
         font = _font(size)
         while size > 6:
             tb = draw.textbbox((0, 0), text, font=font)
-            if tb[2] - tb[0] <= (r - l) * 1.05 + 2:
+            if tb[2] - tb[0] <= bw * 1.05 + 2 and tb[3] - tb[1] <= h * 1.1 + 1:
                 break
             size -= 1
             font = _font(size)
-        fg = _fg_color(bg) if mode != "L" else (0 if (bg if isinstance(bg, int) else 255) > 127 else 255)
-        draw.text((l, t), text, fill=fg, font=font)
+        tb = draw.textbbox((0, 0), text, font=font)
+        draw.text((l - tb[0], t - tb[1] + max(0, (h - (tb[3] - tb[1])) // 2)), text, fill=fg, font=font)
     if work.mode != mode:
         try:
             work = work.convert(mode)
