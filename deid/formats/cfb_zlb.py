@@ -186,3 +186,85 @@ def rewrite_binary(data, pairs):
     if diff is not None and any(not any(a <= i < b for a, b in spans) for i in diff):
         return None, "verify"
     return updated, "ok"
+
+
+# ---------------------------------------------------------------------------
+# OLE round 3: multi-record ZLB layout  MAGIC | (size u32, comp u32, zlib[comp])+ | 8 zero bytes
+# ---------------------------------------------------------------------------
+def records(data, max_size=MAX_BIN_SIZE):
+    """[(offset_of_zlib, size, comp, payload)] or None when the layout is not exactly this."""
+    if len(data) < 40 or not data.startswith(MAGIC) or data[-8:] != bytes(8):
+        return None
+    off, out = 16, []
+    while off < len(data) - 8:
+        if off + 8 > len(data) - 8:
+            return None
+        size, comp = struct.unpack_from("<II", data, off)
+        if not (0 < size <= max_size) or comp == 0 or off + 8 + comp > len(data) - 8:
+            return None
+        try:
+            dec = zlib.decompressobj()
+            raw = dec.decompress(data[off + 8:off + 8 + comp], size + 1)
+        except zlib.error:
+            return None
+        if not dec.eof or dec.unused_data or len(raw) != size:
+            return None
+        out.append((off + 8, size, comp, raw))
+        off += 8 + comp
+    return out if off == len(data) - 8 else None
+
+
+def _replace_accounts(raw, pairs):
+    buf = bytearray(raw)
+    spans = []
+    for orig, alias in pairs:
+        if len(orig) != len(alias):
+            continue
+        for enc in ("utf-16-le", "cp1252"):
+            try:
+                o = orig.encode(enc)
+                alias.encode(enc)
+            except UnicodeEncodeError:
+                continue
+            if enc == "utf-16-le":
+                pat = re.compile(rb"(?<![A-Za-z0-9]\x00)" + re.escape(o) + rb"(?![A-Za-z0-9]\x00)", re.I)
+            else:
+                pat = re.compile(rb"(?<![A-Za-z0-9])" + re.escape(o) + rb"(?![A-Za-z0-9])", re.I)
+            for m in pat.finditer(raw):
+                src = raw[m.start():m.end()].decode(enc, "replace")
+                rep = _case_like(src, alias).encode(enc)
+                if len(rep) == m.end() - m.start():
+                    buf[m.start():m.end()] = rep
+                    spans.append((m.start(), m.end()))
+    return bytes(buf), spans
+
+
+def rewrite_multi(data, pairs):
+    """Round 3: every record of a multi-record ZLB stream; each re-deflated to its exact original size."""
+    recs = records(data)
+    if recs is None or len(recs) < 2:
+        return None, "layout"
+    out = bytearray(data)
+    changed = 0
+    for zoff, size, comp, raw in recs:
+        new_raw, spans = _replace_accounts(raw, pairs)
+        if not spans:
+            continue
+        z = _deflate_exact(new_raw, comp)
+        if z is None:
+            return None, "nofit"
+        out[zoff:zoff + comp] = z
+        changed += 1
+    if not changed:
+        return None, "none"
+    new = bytes(out)
+    chk = records(new)
+    if chk is None or [(s, c) for _, s, c, _ in chk] != [(s, c) for _, s, c, _ in recs]:
+        return None, "verify"
+    return new, "ok"
+
+
+def rewrite_plain(data, pairs):
+    """Round 3: uncompressed streams (GeometricVersionHistory, Parasolid text): same-length account edits."""
+    new, spans = _replace_accounts(data, pairs)
+    return (new, "ok") if spans else (None, "none")

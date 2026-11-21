@@ -497,7 +497,7 @@ def scrub_dead(path, regions):
 
 class CfbAdapter(Adapter):
     name = "cfb"
-    version = "5d"
+    version = "6"
     priority = 10
     magics = ("cfb",)
     path_independent = False
@@ -665,7 +665,15 @@ class CfbAdapter(Adapter):
                 elif name.endswith("__ZLB") and zlb_pairs and not _ACCOUNT_PREVIEW.search(name):
                     # OLE round 2: binary single-record ZLB streams (display lists, visual states)
                     new, why = cfb_zlb.rewrite_binary(data, zlb_pairs)
+                    if why == "layout" and os.environ.get("DEID_CFB_ZLB_MULTI", "1") == "1":
+                        new, why = cfb_zlb.rewrite_multi(data, zlb_pairs)   # round 3: multi-record
+                        why = "multi_" + why
                     counts["zlb_bin_" + why] = counts.get("zlb_bin_" + why, 0) + 1
+                elif (zlb_pairs and os.environ.get("DEID_CFB_PLAIN_ACCOUNTS", "1") == "1"
+                      and re.search(r"(?i)^GeometricVersionHistory$|^PARASOLID/STREAM\d*\.[XPD]_B$", name)):
+                    # round 3: account strings in version history and Parasolid text headers (same length)
+                    new, why = cfb_zlb.rewrite_plain(data, zlb_pairs)
+                    counts["plain_acc_" + why] = counts.get("plain_acc_" + why, 0) + 1
                 elif name.endswith("__ZLB") or _SKIP_STREAM.search(name) or len(data) > 64 << 20:
                     continue
                 else:
@@ -765,6 +773,12 @@ class CfbAdapter(Adapter):
                             pa, pb = cfb_zlb.payload(da), cfb_zlb.payload(db)
                         else:   # round 2: binary single-record records, same-length account edits only
                             pa, pb = cfb_zlb.payload_any(da), cfb_zlb.payload_any(db)
+                            if pa is None and pb is None:   # round 3: multi-record layout
+                                ra, rb = cfb_zlb.records(da), cfb_zlb.records(db)
+                                if (ra is not None and rb is not None and
+                                        [(s1, c1) for _, s1, c1, _ in ra] == [(s1, c1) for _, s1, c1, _ in rb]):
+                                    pa = b"".join(r[3] for r in ra)
+                                    pb = b"".join(r[3] for r in rb)
                         if (_ACCOUNT_PREVIEW.search(n)
                                 or da[:24] != db[:24] or da[-8:] != db[-8:]
                                 or pa is None or pb is None or len(pa) != len(pb)):
