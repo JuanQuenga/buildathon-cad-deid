@@ -67,8 +67,14 @@ Python 3.13 (locked with `uv.lock`):
 | pyahocorasick | BSD-3 | multi-pattern leak scan |
 | pytest (dev) | MIT | tests |
 
-System: libarchive ≥ 3.7, git, curl (acquisition), gzip (tests only).
-No copyleft library is linked.
+System: libarchive ≥ 3.7, git, curl (acquisition), gzip(1) (fast `.Z` decoding; own LZW codec as
+fallback), optional tesseract (Apache-2.0) for OCR of raster title blocks. SQLite via Python's stdlib.
+No copyleft library is linked or shipped (a GPL DWG reader was used only as a local, unshipped checker).
+
+Environment: `DEID_OCR_CACHE` (OCR each image once across scan and rewrite) and
+`DEID_CONSTRAINTS_DIR` (log of references that could not be rewritten) — `tools/run_attempt.sh`
+sets both under the work dir. `tools/run_attempt.sh INPUT MANIFEST WORK ATTEMPT [JOBS]` runs every
+step end to end (resumable; never uploads).
 
 ## Tests
 
