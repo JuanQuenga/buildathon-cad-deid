@@ -1386,7 +1386,11 @@ class _LocalPlan:
         self._p = plan
         self.extras = []
         for value, alias in sorted(extras.items(), key=lambda kv: -len(kv[0])):
-            rx = re.compile(r"(?<![\w])" + r"\s+".join(re.escape(t) for t in value.split()) + r"(?![\w])", re.I)
+            body = r"\s+".join(re.escape(t) for t in value.split())
+            cjk = lambda ch: "\u2e80" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" or "\u3040" <= ch <= "\u30ff"
+            pre = "" if cjk(value[0]) else r"(?<![\w])"
+            post = "" if cjk(value[-1]) else r"(?![\w])"
+            rx = re.compile(pre + body + post, re.I)
             self.extras.append((rx, alias))
 
     def __getattr__(self, name):
@@ -1790,6 +1794,10 @@ def _e16_alias(plan, tok: str) -> str:
     return a
 
 
+_E16_CJK_LABELS = ("更改文件号", "阶段标记", "主管设计", "标准化", "设计", "比例", "重量", "材料", "图号", "日期", "工艺",
+                   "审核", "批准", "校核", "签名", "处数", "分区", "标记", "制图", "校对", "名称", "数量", "备注", "共", "张")
+
+
 def _e16_foreign_tokens(t: str) -> list:
     """Title-block cell tokens that an English-centric extractor would not know: not an English
     dictionary word, no digits, not a unit/material/abbreviation (Benennung, Maßstab, Fecha, 设计)."""
@@ -1803,6 +1811,9 @@ def _e16_foreign_tokens(t: str) -> list:
         if not cjk and tl not in _E16_FORCE and (is_word(tl) or tl in _E5_ENG_WORDS or tl in _E5_FUNC or tl in _E16_EN_ABBR):
             continue
         out.append(tok)
+        if cjk and len(tok) > 2:
+            # glued CJK cells ("标记处数更改文件号签字日期"): the label words inside get their own aliases
+            out.extend(lab for lab in _E16_CJK_LABELS if len(lab) >= 2 and lab in tok and lab != tok)
     return out
 
 
