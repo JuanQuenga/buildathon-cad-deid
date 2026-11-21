@@ -44,12 +44,13 @@ INFRA_DOMAINS = (
     "vercel-storage.com", "figma.com", "digicert.com", "verisign.com", "globalsign.com", "letsencrypt.org",
     "localhost", "readthedocs.io", "readthedocs.org", "stackoverflow.com", "doi.org", "arxiv.org",
     "schema.org", "openxmlformats.org", "autodesk.com", "kicad.org", "python.org", "nodejs.org",
-    "wikipedia.org", "archive.org", "w3.org", "git-scm.com", "apache.org", "eclipse.org", "debian.org",
+    "wikipedia.org", "archive.org", "matplotlib.org", "mathworks.com", "monotype.com", "linotype.com",
+    "fonts.com", "typekit.com", "amazon.com", "openssl.org", "jquery.com", "bootstrapcdn.com", "w3.org", "git-scm.com", "apache.org", "eclipse.org", "debian.org",
     "ubuntu.com", "microsoft.com", "apple.com", "google.com", "mozilla.org", "gnu.org", "fsf.org",
 )
 
 BAD_VALUE = re.compile(
-    r"^(\d[\d\s.:/_+-]*|[0-9a-f]{16,}|v?\d+(\.\d+)+.*|\d{4}-\d\d-\d\d.*|[\W_]+|.{1,2}|"
+    r"^([A-Z0-9_]+-(ORG|PER|PERSON|ORGANIZATION|ORGANISATION|ADDR)\d*|\d[\d\s.:/_+-]*|[0-9a-f]{16,}|v?\d+(\.\d+)+.*|\d{4}-\d\d-\d\d.*|[\W_]+|.{1,2}|"
     r"(id|person|organization|org|name|first|last)[ _]?(\d+|id|name|first_name|last_name)?)$", re.I)
 EXTRA_PLACEHOLDERS = {norm_key(x) for x in (
     "kicad stepup", "ksu", "ksu mcad", "kicad", "pcbnew", "occ", "occt", "open cascade", "freecad",
@@ -68,7 +69,7 @@ TITLEBLOCK_STOP = {norm_key(x).replace(" ", "") for x in (
     "drawing part number description item comments notes eng engineer by of a b c d the and for "
     "ok yes no n/a tbd see note general"
 ).split()}
-VENDOR_TOKENS = {"alibre", "intergraph", "zemax", "hexagon", "bentley", "microstation", "vectorworks", "nemetschek",
+VENDOR_TOKENS = {"apple", "google", "alibre", "intergraph", "zemax", "hexagon", "bentley", "microstation", "vectorworks", "nemetschek",
                  "graphisoft", "esprit", "mastercam", "gibbscam", "hypermill", "openmind", "cimatron", "zwsoft",
                  "zwcad", "steptools", "sdrc", "transcendata", "kubotek", "ugs", "unigraphics", "datakit",
                  "cadexchanger", "elysium", "theorem", "terraform", "proficiency", "solidworks", "dassault", "systèmes", "systemes", "autodesk", "ptc", "siemens", "microsoft",
@@ -163,7 +164,10 @@ def classify(paths_obs, trust_fields=False):
             if kind == "email" or EMAIL_RE.fullmatch(v):
                 m = EMAIL_RE.search(v)
                 dom = m.group(2) if m else ""
-                if m and (dom == dom.lower() or dom == dom.upper()) and len(m.group(1)) >= 2:
+                first = dom.split(".")[0]
+                if (m and (dom == dom.lower() or dom == dom.upper()) and len(m.group(1)) >= 2
+                        and re.search(r"[A-Za-z]{2}", m.group(1)) and not m.group(1)[-1] in "._-"
+                        and not first.isdigit() and (len(first) >= 3 or dom.count(".") >= 2)):
                     add(m.group(0), "email", path, field)
                 continue
             if kind == "domain":

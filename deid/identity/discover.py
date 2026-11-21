@@ -154,13 +154,13 @@ def scan_step(data: bytes, out):
         ent = em.group(1).decode()
         args = step_args(data, em.end(), 4000)
         strs = _strings(args)
-        if ent == "PERSON":
-            for s in strs:
+        if ent == "PERSON":  # (id, last_name, first_name, middle_names, prefix, suffix)
+            for s in strs[1:]:
                 _obs(out, "person", "step.PERSON", s)
             if len(strs) >= 3:
                 _obs(out, "person", "step.PERSON.full", " ".join(x for x in strs[1:3][::-1] if x))
-        elif ent == "ORGANIZATION":
-            for s in strs[:2]:
+        elif ent == "ORGANIZATION":  # (id, name, description)
+            for s in strs[1:2]:
                 _obs(out, "company", "step.ORGANIZATION", s)
         elif ent.endswith("ADDRESS"):
             for s in strs:
