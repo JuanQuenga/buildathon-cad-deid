@@ -150,7 +150,10 @@ class Processor:
         ctx.dispatch_scan, ctx.dispatch_rewrite = self.dispatch_scan, self.dispatch_rewrite
         if len(ctx.container_chain) > self.depth_limit:
             return ScanResult(status="unsupported", notes=["nesting too deep"])
+        saved_tmp = ctx.tmp_dir
+        ctx.tmp_dir = ""  # members get their own scratch dir
         name, ver, res, err, secs = self.scan(ctx, src, head)
+        ctx.tmp_dir = saved_tmp
         res.fingerprint.setdefault("_adapter", name)
         if err:
             res.notes.append("scan error: " + err)
