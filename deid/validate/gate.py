@@ -20,6 +20,7 @@ import io
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 import zipfile
@@ -471,9 +472,34 @@ def cmd_validate(args):
         pats, values, skipped = build_patterns(plan)
         rep["leak_patterns"] = {"identifiers": len(values), "too_short_skipped": skipped,
                                 "needles": len(pats)}
+        # incremental: reuse the previous attempt's findings for outputs whose rewrite key (content,
+        # adapter version, plan version, output path) is unchanged and whose plan is identical
+        reuse = {}
+        prev = getattr(args, "prev_work", None)
+        if prev and os.path.exists(os.path.join(prev, "validate", "leaks.tsv")):
+            try:
+                pplan = json.load(open(os.path.join(prev, "plan", "plan.json"))).get("version")
+            except Exception:
+                pplan = None
+            if pplan == plan.version:
+                cur = dict(rcon.execute("SELECT path, key FROM results"))
+                pc = sqlite3.connect(f"file:{prev}/results.sqlite?mode=ro", uri=True)
+                same = {p for p, k in pc.execute("SELECT path, key FROM results") if cur.get(p) == k}
+                pleaks = collections.defaultdict(list)
+                with open(os.path.join(prev, "validate", "leaks.tsv"), encoding="utf-8", errors="replace") as fh:
+                    for line in fh:
+                        c = line.rstrip("\n").split("\t")
+                        if len(c) >= 4:
+                            pleaks[c[0]].append(tuple(c[:4]))
+                for r in rows:
+                    if r["path"] in same:
+                        reuse[out_paths[r["path"]]] = pleaks.get(out_paths[r["path"]], [])
+                rep["leak_scan_reused"] = len(reuse)
         tasks = []
         for r in rows:
             o = out_paths[r["path"]]
+            if o in reuse:
+                continue
             full = os.path.join(corpus, o)
             if os.path.isfile(full):
                 tasks.append((o, {"path": full, "rel": o}, 600 + os.path.getsize(full) / 20e6))
@@ -482,6 +508,14 @@ def cmd_validate(args):
         lc = collections.Counter()
         files_with = collections.Counter()
         ext_with = collections.Counter()
+        for o, lines in reuse.items():
+            for line in lines:
+                leaks.append(line)
+                w = line[1]
+                lc["decoded_hits" if w.startswith("decoded") else f"{w}_hits"] += 1
+            if lines:
+                files_with["files"] += 1
+                ext_with[suffix_of(o).lower().split(".")[-1] or "(none)"] += 1
         try:
             for o, payload, r in pool.run(tasks):
                 if "_pool_error" in r:

@@ -32,6 +32,7 @@ def main(argv=None):
     common(v, out=True)
     v.add_argument("--leak-scan", default="fast", choices=["off", "fast", "full"])
     v.add_argument("--no-reverify", action="store_true")
+    v.add_argument("--prev-work", default=None, help="reuse leak-scan findings of unchanged outputs from this work dir")
     pk = sub.add_parser("package")
     common(pk, out=True)
     pk.add_argument("--stage", required=True, help="stage dir with corpus/ produced by rewrite")

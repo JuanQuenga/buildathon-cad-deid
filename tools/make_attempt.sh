@@ -62,10 +62,20 @@ con = sqlite3.connect(f"{work}/results.sqlite")
 if full:
     n = con.execute("DELETE FROM results").rowcount
 elif names:
-    # archives and packages route members through every adapter: redo them too
-    names |= {"zip", "tar", "gzip", "compress", "7z", "rar", "zippkg"}
     n = con.execute(f"DELETE FROM results WHERE adapter IN ({','.join('?' * len(names))})",
                     tuple(sorted(names))).rowcount
+    # archives/packages: redo only those that contain a member handled by a changed adapter
+    import json as _json
+    sc = sqlite3.connect(f"file:{work}/scan.sqlite?mode=ro", uri=True)
+    tops = set()
+    for path, fp in sc.execute("SELECT path, fingerprint FROM files WHERE parent IS NOT NULL"):
+        try:
+            if _json.loads(fp or "{}").get("_adapter") in names:
+                tops.add(path.split("!/", 1)[0])
+        except ValueError:
+            pass
+    for t in tops:
+        n += con.execute("DELETE FROM results WHERE path=?", (t,)).rowcount
 else:
     n = 0
 con.commit()
@@ -79,7 +89,7 @@ if [ ! -f "$W/plan/plan.json" ]; then log "plan"; $PY -m deid.pipeline plan $A >
 T1=$(date +%s)
 log "rewrite"; $PY -m deid.pipeline rewrite $A --out "$W/stage" >> "$W/rewrite.log" 2>&1
 T2=$(date +%s)
-log "validate"; $PY -m deid.pipeline validate $A --out "$W/stage" --leak-scan full >> "$W/validate.log" 2>&1 || log "validate reported hard failures"
+log "validate"; $PY -m deid.pipeline validate $A --out "$W/stage" --leak-scan full --prev-work "$PW" >> "$W/validate.log" 2>&1 || log "validate reported hard failures"
 T3=$(date +%s)
 log "package"; $PY -m deid.pipeline package $A --stage "$W/stage" --out "$OUT" >> "$W/package.log" 2>&1
 log "md5 manifest"; $PY tools/md5_manifest.py --attempt "$OUT" --work "$W" --manifest "$MAN" --jobs "$JOBS" >> "$W/md5.log" 2>&1
