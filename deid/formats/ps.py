@@ -34,6 +34,7 @@ _END_FOR = {b"%%BeginData": b"%%EndData", b"%%BeginBinary": b"%%EndBinary", b"%%
             b"%%BeginICCProfile": b"%%EndICCProfile", b"%ImageData": b"%%EndData",
             b"%AI9_DataStream": b"%AI9_PrivateDataEnd", b"%AI12_CompressedData": b"%AI9_PrivateDataEnd",
             b"%AI24_ZStandard_Data": b"%AI9_PrivateDataEnd"}
+_MARKER = re.compile(rb"%+[!A-Za-z0-9_\-+.]*\s*$")
 _NEXT_DSC = re.compile(rb"[\r\n]%[%A]")
 _ESC = re.compile(rb"\\([nrtbf()\\]|[0-7]{1,3}|\r\n|\n|\r)")
 
@@ -192,7 +193,7 @@ def _strip_parens(v: bytes):
 
 class PsAdapter(Adapter):
     name = "ps"
-    version = "4"
+    version = "5"
     priority = 10
     magics = ("ps", "eps", "eps_binary")
     extensions = (".ps", ".eps", ".epsf", ".epsi", ".ai")
@@ -231,6 +232,8 @@ class PsAdapter(Adapter):
         def fn(kind, raw, prev):
             nonlocal nstr
             if kind == "comment":
+                if _MARKER.match(raw):
+                    return None
                 pre, val = _comment_value(raw)
                 _, v, _ = _strip_parens(val)
                 t, _ = _dec(v)
@@ -242,7 +245,7 @@ class PsAdapter(Adapter):
                 return None
             nstr += 1
             t, _ = _dec(_ps_unescape(raw))
-            if sum(ch.isalpha() for ch in t) >= 2 and len(t) < 2000:
+            if sum(ch.isalpha() for ch in t) >= 2 and len(t) < 2000 and not t.startswith(("%", "/")):
                 if looks_like_reference(t):
                     col.ref(t, ref_kind(t), "ps.string")
                 col.add("free_text", "ps.string", t, "string", 0.4)
@@ -267,6 +270,8 @@ class PsAdapter(Adapter):
         def fn(kind, raw, prev):
             nonlocal nchg
             if kind == "comment":
+                if _MARKER.match(raw):
+                    return None   # structural marker such as %AI9_PrivateDataEnd / %%EndComments
                 pre, val = _comment_value(raw)
                 if not val.strip():
                     return None
@@ -283,8 +288,8 @@ class PsAdapter(Adapter):
                 return pre + lp + nb + rp
             v = _ps_unescape(raw)
             t, e = _dec(v)
-            if not any(ch.isalpha() for ch in t):
-                return None
+            if not any(ch.isalpha() for ch in t) or t.startswith(("%", "/")):
+                return None   # DSC keywords / names compared by procedures: code, not text
             nt = pc.ref(t) if looks_like_reference(t) else pc.text(t)
             if nt == t:
                 return None
