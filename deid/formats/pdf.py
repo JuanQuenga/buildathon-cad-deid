@@ -1760,7 +1760,7 @@ id ok mm cm cad cam pdf dxf dwf iso din ansi asme astm gdt ra rz hrc ds dr ck ap
 assy sht sz scl dept tel fax www http https com org net inc ltd llc gmbh corp co pty bv ag sa sl srl solidworks
 autocad inventor fusion catia creo freecad onshape solidedge rhino sketchup
 are any can may end per all sub see has had was its our you yes use used new old one two out off own via etc
-but nor yet who why how get got let put set run cut fit hex nut set top req reqd unc unf npt bsp ipt iam idw slddrw
+but nor yet who why how get got let put set run cut fit hex nut set top req reqd unc unf npt bsp ipt iam idw slddrw deg degs rad
 sldprt sldasm step stp stl igs iges uni bsi jis gost csn nfe une sae api ieee ul ce rohs
 """.split())
 _E16_OWNER_END = re.compile(r"(?i)(?:property of(?: the)?|sole property of(?: the)?|propiedad(?: exclusiva)? de(?: la| el)?|"
