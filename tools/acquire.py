@@ -36,7 +36,9 @@ def main():
     ap.add_argument("--jobs", type=int, default=16)
     ap.add_argument("--prefix", default="")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--largest-first", action="store_true")
+    ap.add_argument("--min-size", type=int, default=0, help="only files with at least this many bytes")
+    ap.add_argument("--max-size", type=int, default=-1, help="only files below this many bytes")
+    ap.add_argument("--smallest-first", action="store_true")
     args = ap.parse_args()
     dest = os.path.abspath(args.dest)
     os.makedirs(dest, exist_ok=True)
@@ -44,6 +46,7 @@ def main():
     done = set()
     if os.path.exists(done_path):
         done = set(l.rstrip("\n") for l in open(done_path, encoding="utf-8"))
+    # several instances may run on disjoint size ranges; they share the done list (append-only)
     rows = []
     for line in open(args.manifest, encoding="utf-8"):
         if line.startswith("#"):
@@ -51,12 +54,14 @@ def main():
         path, size, md5, url = line.rstrip("\n").split("\t")
         if not path.startswith(args.prefix):
             continue
+        if int(size) < args.min_size or (args.max_size >= 0 and int(size) >= args.max_size):
+            continue
         rows.append((path, int(size), md5, url))
         if args.limit and len(rows) >= args.limit:
             break
     todo = [r for r in rows if r[0] not in done]
     # big files first so the long tail is small ones in parallel
-    todo.sort(key=lambda r: -r[1])
+    todo.sort(key=lambda r: r[1] if args.smallest_first else -r[1])
     total = sum(r[1] for r in rows)
     have = sum(r[1] for r in rows if r[0] in done)
     lock = threading.Lock()
