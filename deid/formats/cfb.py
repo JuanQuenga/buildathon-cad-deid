@@ -293,9 +293,129 @@ def _zlb_payload(data: bytes) -> Optional[bytes]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Dead space: bytes no CFB reader ever returns (free sectors, slack after a stream's
+# last byte, free mini sectors, unused directory entries). Old content of deleted or
+# shrunk streams survives there; zeroing it cannot change any stream.
+_EMPTY_DIRENT = b"\x00" * 66 + b"\x00\x00" + b"\xff\xff\xff\xff" * 3 + b"\x00" * 50
+
+
+def dead_regions(path):
+    """[(file_offset, length)] of dead bytes in a CFB file (requires olefile)."""
+    regions = []
+    ole = olefile.OleFileIO(path)
+    try:
+        ss = ole.sectorsize
+        fsize = os.path.getsize(path)
+
+        def soff(i):
+            return (i + 1) * ss
+        fat = ole.fat
+        for i, v in enumerate(fat):
+            if v == olefile.FREESECT and soff(i) + ss <= fsize:
+                regions.append((soff(i), ss))
+
+        def chain(start, limit=1 << 22):
+            out, s, n = [], start, 0
+            while 0 <= s < len(fat) and n < limit:
+                out.append(s)
+                s = fat[s]
+                n += 1
+            return out
+        cutoff = ole.minisectorcutoff
+        mss = ole.minisectorsize
+        root = ole.root
+        mini_chain = chain(root.isectStart) if root.size else []
+        for de in ole.direntries:
+            if de is None:
+                continue
+            if de.entry_type == olefile.STGTY_STREAM and de.size >= cutoff:
+                ch = chain(de.isectStart)
+                used = de.size % ss
+                if ch and used and len(ch) * ss >= de.size:
+                    last = ch[(de.size - 1) // ss]
+                    regions.append((soff(last) + used, ss - used))
+        # root (mini stream container) slack
+        if mini_chain and root.size % ss and len(mini_chain) * ss >= root.size:
+            last = mini_chain[(root.size - 1) // ss]
+            regions.append((soff(last) + root.size % ss, ss - root.size % ss))
+
+        def moff(j):
+            k = (j * mss) // ss
+            if k >= len(mini_chain):
+                return None
+            return soff(mini_chain[k]) + (j * mss) % ss
+        try:
+            ole.loadminifat()
+            minifat = ole.minifat
+        except Exception:
+            minifat = []
+        for j, v in enumerate(minifat):
+            if v == olefile.FREESECT and (j + 1) * mss <= root.size:
+                o = moff(j)
+                if o is not None:
+                    regions.append((o, mss))
+        for de in ole.direntries:
+            if de is None or de.entry_type != olefile.STGTY_STREAM or de.size >= cutoff or not de.size:
+                continue
+            s, n, ch = de.isectStart, 0, []
+            while 0 <= s < len(minifat) and n < 1 << 20:
+                ch.append(s)
+                s = minifat[s]
+                n += 1
+            used = de.size % mss
+            if ch and used and len(ch) * mss >= de.size:
+                o = moff(ch[(de.size - 1) // mss])
+                if o is not None:
+                    regions.append((o + used, mss - used))
+    finally:
+        ole.close()
+    return regions
+
+
+def _read_regions(path, regions):
+    out = []
+    with open(path, "rb") as f:
+        for off, ln in regions:
+            f.seek(off)
+            out.append(f.read(abs(ln)))
+    return out
+
+
+def dead_has_identity(path, plan):
+    regions = dead_regions(path)
+    blob = b"\x01".join(_read_regions(path, regions))
+    if not blob.strip(b"\x00\x01"):
+        return False, regions
+    for enc in ("utf-16-le", "latin-1"):
+        try:
+            if plan.replace_bytes(blob, (enc,), True) != blob:
+                return True, regions
+        except Exception:
+            continue
+    return False, regions
+
+
+def _streams(path):
+    ole = olefile.OleFileIO(path)
+    try:
+        return {"/".join(p): ole.openstream(p).read() for p in ole.listdir(streams=True, storages=True)
+                if ole.get_type(p) == olefile.STGTY_STREAM} | {"#dirs": ole.listdir(streams=True, storages=True)}
+    finally:
+        ole.close()
+
+
+def scrub_dead(path, regions):
+    with open(path, "r+b") as f:
+        for off, ln in regions:
+            f.seek(off)
+            f.write(_EMPTY_DIRENT if ln < 0 else b"\x00" * ln)
+    return len(regions)
+
+
 class CfbAdapter(Adapter):
     name = "cfb"
-    version = "1"
+    version = "2"
     priority = 10
     magics = ("cfb",)
     path_independent = False
@@ -422,7 +542,11 @@ class CfbAdapter(Adapter):
                     if len(new) != len(data):
                         continue
                     changes[tuple(path)] = new
-        if not changes:
+        try:
+            dead_hit, _ = dead_has_identity(src_path, plan)
+        except Exception:
+            dead_hit = False
+        if not changes and not dead_hit:
             return RewriteResult(status=VERIFIED_UNCHANGED, counts=counts)
         shutil.copyfile(src_path, dst_path)
         try:
@@ -450,6 +574,17 @@ class CfbAdapter(Adapter):
                 os.remove(dst_path)
                 return RewriteResult(status=COPIED_UNSUPPORTED, notes=[f"in-place write not reproducible: {type(e).__name__}"])
         counts["streams_rewritten"] = len(changes)
+        if dead_hit:
+            pre = os.path.join(ctx.tmp_dir, "prescrub.cfb")
+            shutil.copyfile(dst_path, pre)
+            try:
+                n = scrub_dead(dst_path, dead_regions(dst_path))
+                if _streams(pre) != _streams(dst_path):
+                    raise ValueError("a live stream changed")
+                counts["dead_regions_zeroed"] = n
+            except Exception:
+                shutil.copyfile(pre, dst_path)      # keep the stream edits, skip the scrub
+                counts["dead_scrub_skipped"] = 1
         return RewriteResult(status=REWRITTEN, counts=counts)
 
     def verify(self, ctx, src_path, dst_path, plan):
