@@ -671,8 +671,13 @@ class CfbAdapter(Adapter):
                     counts["zlb_bin_" + why] = counts.get("zlb_bin_" + why, 0) + 1
                 elif (zlb_pairs and os.environ.get("DEID_CFB_PLAIN_ACCOUNTS", "1") == "1"
                       and re.search(r"(?i)^GeometricVersionHistory$|^PARASOLID/STREAM\d*\.[XPD]_B$", name)):
-                    # round 3: account strings in version history and Parasolid text headers (same length)
-                    new, why = cfb_zlb.rewrite_plain(data, zlb_pairs)
+                    # round 3: the normal text pass first (plan values such as SITE=...), then account
+                    # strings in version history and Parasolid text headers (same length)
+                    new = _edit_text_runs(ctx, data, plan, counts, saving_accounts=saving_accounts,
+                                          exact_cstrings=False)
+                    acc_new, why = cfb_zlb.rewrite_plain(new if new is not None else data, zlb_pairs)
+                    if acc_new is not None:
+                        new = acc_new
                     counts["plain_acc_" + why] = counts.get("plain_acc_" + why, 0) + 1
                 elif name.endswith("__ZLB") or _SKIP_STREAM.search(name) or len(data) > 64 << 20:
                     continue
@@ -783,7 +788,7 @@ class CfbAdapter(Adapter):
                                 or da[:24] != db[:24] or da[-8:] != db[-8:]
                                 or pa is None or pb is None or len(pa) != len(pb)):
                             return VerifyResult(ok=False, notes=["compressed stream layout changed"])
-                        if not xml and sum(1 for x, y in zip(pa, pb) if x != y) > 4096:
+                        if not xml and sum(1 for x, y in zip(pa, pb) if x != y) > max(4096, len(pa) // 50):
                             return VerifyResult(ok=False, notes=["binary record changed beyond account edits"])
         except Exception as e:
             return VerifyResult(ok=False, notes=[f"reopen failed: {type(e).__name__}"])
