@@ -1336,6 +1336,18 @@ duplicated used permission prohibited reproduction dimensions millimetres millim
 specified property confidential proprietary drawing drawings copyright rights reserved without written
 consent information contained about us tolerance tolerances scale sheet title material finish weight date
 """.split())
+_TB_GENERIC = set("""
+size date rev revision sheet scale material finish weight projection tolerance tolerances units unit angular
+notice page issued signature appvd appv'd datum roughness chamfers chamfer rounds round deburr edges break sharp
+system degrees inches millimeters millimetres primary secondary unless otherwise specified metric threads iso
+made drawn checked approved designed title description part number qty quantity item mass surface treatment
+hardness coating paint colour color general notes note dimensions dimension mm cm inch scale do not
+undim undimensioned remove burrs burr fillet fillets radii radius thread holes hole through thru typ
+tractament tèrmic recobriment impressió mòdul acotació toleràncies caixetí datum blatt maßstab benennung
+werkstoff gewicht oberfläche zeichnungsnummer gezeichnet geprüft norm änderung ausgabe urspr ersatz
+fecha escala plano hoja material peso dibujado revisado aprobado tolerancias acabado tratamiento
+échelle feuille matière masse désignation dessiné vérifié approuvé
+""".split())
 _GERMAN_NOUN = re.compile(r"(?i)(ung|teil|bau|satz|deckel|breite|glas|lager|ring|platte|halter|schraube|welle|"
                           r"geh[äa]use|keit|heit|st[üu]ck|scheibe|bolzen|mutter|buchse|h[üu]lse|rad|lasche|winkel)$")
 
@@ -1358,7 +1370,7 @@ def local_titleblock_identities(src_path, plan):
     if os.environ.get("DEID_PDF_LOCAL_IDS", "1") != "1":
         return {}
     try:
-        from deid.identity.pdfids import person_value, company_value, phone_value, _ok_token, ORG_TAIL
+        from deid.identity.pdfids import person_value, company_value, phone_value, _ok_token, ORG_TAIL, LABEL_WORDS
         from deid.identity.vocab import is_word
     except Exception:
         return {}
@@ -1392,8 +1404,37 @@ def local_titleblock_identities(src_path, plan):
                 if nu.label_kind(tt):
                     continue
                 cands.append((tt.strip(), k))
+    # aggressive title-block cells (probe, DEID_PDF_TB_CELLS=1): every alphabetic, non-label cell of
+    # the title-block region (part/project names, descriptions, short notes) gets token pseudonyms
+    if os.environ.get("DEID_PDF_TB_CELLS", "1") == "1":
+        for W, H, lines in pages:
+            if not W or not H:
+                continue
+            for (x0, y0, x1, y1, t) in lines:
+                t = " ".join(t.split())
+                if not (x0 > 0.5 * W and y0 > 0.6 * H) or not t or len(t) < 3 or len(t) > 60:
+                    continue
+                if any(ch.isdigit() for ch in t) or nu.label_kind(t) or nu.label_kind(t.rstrip(":")):
+                    continue
+                toks = re.findall(r"[^\W\d_]+", t)
+                if not toks or len(toks) > 6 or not any(len(x) >= 3 for x in toks):
+                    continue
+                if all(is_word(x.lower()) or x.lower() in _TB_GENERIC or LABEL_WORDS.search(x) or len(x) <= 2
+                       for x in toks):
+                    continue                 # labels, notes and generic words in any of our languages
+                cands.append((t, "cell"))
     out = {}
     for raw, kind in cands:
+        if kind == "cell":
+            if raw in out or plan.replace_text(raw) != raw:
+                continue
+            try:
+                a = plan._render_tokens(raw)
+            except Exception:
+                a = None
+            if a and a != raw and len(a) == len(raw):
+                out[raw] = a
+            continue
         if kind == "name_pattern":
             sur = re.split(r"[.\s]+", raw.strip())[-1]
             ok = _ok_token(sur) and sur.lower() not in _LOCAL_STOP and not (len(sur) <= 5 and is_word(sur.lower()))
@@ -1423,7 +1464,7 @@ def local_titleblock_identities(src_path, plan):
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "4"
+    version = "5"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
