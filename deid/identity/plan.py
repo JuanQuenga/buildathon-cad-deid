@@ -211,7 +211,12 @@ class IdentityPlan:
                 if a is None:  # exhausted tiny space (2-char tokens): accept collision
                     a = alias_token(tok_key, self.secret, 0).lower()
             self._tok[tok_key] = a
-            self._alias_set.add(a)
+            # Idempotence set: short runtime aliases (< 4 chars: dates, numbers, initials) are NOT added
+            # to a frozen plan's set, otherwise whether a short token gets aliased would depend on which
+            # other tokens this process aliased before (run-to-run and PDF-to-PDF differences); long
+            # aliases practically never coincide with a real token, so they keep the idempotence guard
+            if not self._frozen or len(a) >= 4:
+                self._alias_set.add(a)
             if not self._frozen:
                 self._used.add(a)
             return a

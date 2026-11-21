@@ -1789,12 +1789,47 @@ def e13_extras(ctx, src_path, plan, counts) -> dict:
                 out[v] = a
             kept += 1
     counts["stem_values_kept"] = kept
+    # values the paired model file (same stem, same folder) also carries stay as they are, so the
+    # drawing and its model keep matching names/titles (the model side is not aliased for them)
+    mv = _model_values(lp)
+    if mv:
+        dropped = 0
+        for v in list(out):
+            if _e13_norm(v) in mv:
+                try:
+                    a = plan.replace_text(v)
+                except Exception:
+                    a = v
+                if a == v:
+                    del out[v]
+                else:
+                    out[v] = a
+                dropped += 1
+        counts["model_values_kept"] = dropped
     return out, stems
+
+
+_MODEL_VALUES = None
+
+
+def _model_values(logical_path: str) -> set:
+    global _MODEL_VALUES
+    if _MODEL_VALUES is None:
+        _MODEL_VALUES = {}
+        f = os.environ.get("DEID_PDF_MODEL_VALUES", "")
+        if f and os.path.exists(f):
+            try:
+                import json
+                with open(f, encoding="utf-8") as fh:
+                    _MODEL_VALUES = {k: set(v) for k, v in json.load(fh).items()}
+            except Exception:
+                _MODEL_VALUES = {}
+    return _MODEL_VALUES.get(logical_path, set())
 
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e13"
+    version = "2e21"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)

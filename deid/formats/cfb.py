@@ -497,7 +497,7 @@ def scrub_dead(path, regions):
 
 class CfbAdapter(Adapter):
     name = "cfb"
-    version = "5"
+    version = "5d"
     priority = 10
     magics = ("cfb",)
     path_independent = False
