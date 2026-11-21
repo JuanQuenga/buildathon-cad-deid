@@ -29,9 +29,12 @@ def load_manifest(manifest: str, input_root: str, only_prefix: str = "", limit: 
             path, size, md5 = parts[0], int(parts[1]), parts[2] if len(parts) > 2 else ""
             if only_prefix and not path.startswith(only_prefix):
                 continue
-            if skip_missing and not os.path.isfile(os.path.join(input_root, path)):
-                missing += 1
-                continue
+            if skip_missing:
+                fp = os.path.join(input_root, path)
+                # absent, or still downloading (size differs from the manifest)
+                if not os.path.isfile(fp) or os.path.getsize(fp) != size:
+                    missing += 1
+                    continue
             rows.append({"path": path, "size": size, "md5": md5})
             if limit and len(rows) >= limit:
                 break
@@ -135,8 +138,8 @@ def cmd_scan(args):
     for m, e in errs:
         print(f"adapter import error {m}: {e}", file=sys.stderr)
     con = db.scan_db(args.work)
-    have = {p: (av, a, st) for p, a, av, st in
-            con.execute("SELECT path, adapter, adapter_version, status FROM files WHERE parent IS NULL")}
+    have = {p: (av, a, st, sz) for p, a, av, st, sz in
+            con.execute("SELECT path, adapter, adapter_version, status, size FROM files WHERE parent IS NULL")}
     proc = core.Processor()
     todo, dups, skipped = [], collections.defaultdict(list), 0
     rep_by_md5 = {}
@@ -147,7 +150,7 @@ def cmd_scan(args):
         _, _, a = _route_head(proc, r["path"], src)
         cur = (a.version if a else "", a.name if a else "")
         h = have.get(r["path"])
-        if h and not args.force and h[2] != "error" and (h[0], h[1]) == cur:
+        if h and not args.force and h[2] != "error" and (h[0], h[1]) == cur and h[3] == r["size"]:
             skipped += 1
             continue
         key = (r["md5"], r["size"]) if r["md5"] and r["size"] > 0 else None
