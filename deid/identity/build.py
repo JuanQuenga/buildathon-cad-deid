@@ -348,12 +348,18 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
                 for line in fh:
                     if line.startswith("#"):
                         continue
-                    cols = line.rstrip("\n").split("\t")
-                    if len(cols) >= 3:
+                    cols = line.rstrip("\n").rsplit("\t", 3)
+                    if len(cols) == 4 and cols[2].isdigit():
                         spread[norm_key(cols[0])] = int(cols[2])
             break
     for e in b.entries:
-        if e.mode != FIELD and not e.origin.startswith("path.") and spread.get(norm_key(e.value), 0) > SPREAD_MAX:
+        if e.mode == FIELD or e.origin.startswith("path.") or not spread:
+            continue
+        compact = norm_key(e.value).replace(" ", "")
+        if len(compact) < 5 and e.kind != "domain":
+            continue   # short tokens also occur by chance in binary data: the count is not evidence
+        limit = SPREAD_MAX + 4 if e.kind in ("account", "email_local", "username") else SPREAD_MAX
+        if spread.get(norm_key(e.value), 0) > limit:
             e.mode = FIELD
             b.stats["spread_to_field"] += 1
     plan = IdentityPlan(b.entries, secret, inventory,

@@ -93,7 +93,8 @@ def main(argv=None):
         f.write("# value\tkind\tnamespaces\tfiles\n")
         for h, (v, kind, mode) in enumerate(values):
             if files[h]:
-                f.write(f"{v}\t{kind}\t{len(ns_sets[h])}\t{files[h]}\n")
+                vv = " ".join(v.split())   # one line, no tabs
+                f.write(f"{vv}\t{kind}\t{len(ns_sets[h])}\t{files[h]}\n")
     print(f"wrote {a.out}: {sum(1 for h in files)} entries seen", file=sys.stderr)
 
 
