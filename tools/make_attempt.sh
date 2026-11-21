@@ -94,13 +94,13 @@ T2=$(date +%s)
 log "validate"; (cd "$REPO" && $PY -m deid.pipeline validate $A --out "$W/stage" --leak-scan full --prev-work "$PW") >> "$W/validate.log" 2>&1 || log "validate reported hard failures"
 T3=$(date +%s)
 log "package"; $PY -m deid.pipeline package $A --stage "$W/stage" --out "$OUT" >> "$W/package.log" 2>&1
-log "md5 manifest"; $PY tools/md5_manifest.py --attempt "$OUT" --work "$W" --manifest "$MAN" --jobs "$JOBS" >> "$W/md5.log" 2>&1
-log "diff vs attempt-$PREV"; $PY tools/diff_attempts.py --a-work "$PW" --a-corpus "$BASE/out/attempt-$PREV/corpus" \
+log "md5 manifest"; $PY "$REPO"/tools/md5_manifest.py --attempt "$OUT" --work "$W" --manifest "$MAN" --jobs "$JOBS" >> "$W/md5.log" 2>&1
+log "diff vs attempt-$PREV"; $PY "$REPO"/tools/diff_attempts.py --a-work "$PW" --a-corpus "$BASE/out/attempt-$PREV/corpus" \
     --b-work "$W" --b-corpus "$OUT/corpus" --out "$W/diff" --jobs "$JOBS" >> "$W/diff.log" 2>&1
-log "preflight"; $PY tools/upload_attempt.py --attempt "$OUT" --dest gs://DRY-RUN/attempt-$N/ --plan-dir "$W/plan" \
+log "preflight"; $PY "$REPO"/tools/upload_attempt.py --attempt "$OUT" --dest gs://DRY-RUN/attempt-$N/ --plan-dir "$W/plan" \
     --report "$W/validate/report.json" > "$W/preflight.log" 2>&1 || true
 T4=$(date +%s)
-$PY tools/attempt_summary.py --n "$N" --prev "$PREV" --work "$W" --hypothesis "$HYP" --code "$NEWSHA" \
+$PY "$REPO"/tools/attempt_summary.py --n "$N" --prev "$PREV" --work "$W" --hypothesis "$HYP" --code "$NEWSHA" \
     --timing "scan+plan $((T1-T0))s, rewrite $((T2-T1))s, validate $((T3-T2))s, package+md5+diff $((T4-T3))s, total $((T4-T0))s" \
     --preflight "$W/preflight.log" > "$OUT.summary.txt"
 log "done in $((T4-T0))s -> $OUT ; summary: $OUT.summary.txt"
