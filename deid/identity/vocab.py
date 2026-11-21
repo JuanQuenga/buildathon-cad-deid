@@ -27,16 +27,7 @@ approver id|approver_id|checker|checkerid|checker id|reviewer|drafter|draftsman|
 ownerid|owner id|designerid|designer id|creatorid|customer|client|vendor|supplier|manufacturer|
 person and organization|person_and_organization|personandorganization|organization role|
 id owner|part owner|creator role|classification officer|security classification|
-all rights|all rights reserved|the authors|the property of|property of|with its|run a|at https|
-application data|partnumber|part number|user library|xxxxxx|xxxx|
-sachnummer|benennung|zeichnungsnummer|zeichnungs nr|gezeichnet|geprüft|gepruft|freigegeben|maßstab|massstab|
-werkstoff|blatt|datum|name|norm|fecha|plano|escala|dibujado|revisado|aprobado|nombre|hoja|material|
-dessiné|dessine|vérifié|verifie|échelle|echelle|désignation|designation|folio|disegnato|controllato|
-approvato|scala|foglio|denominazione|tekenaar|getekend|gecontroleerd|schaal|blad|
-drawn by|checked by|approved by|designed by|scale|sheet of|tolerance|tolerances|finish|weight|
-design|designs|designer|detailed design|preliminary design|as designed|as built|as planned|prototype|
-manufacturing|mechanical|production|released|in work|draft|concept|conceptual|detail|details|version|
-revision|rev|new|copy|final|backup|old|sample|example|demo|template|standard|generic|none given|
+design|designs|
 """.replace("\n", "").split("|") if x.strip()}
 
 # Software / CAD vendors and products.  They appear in format-required or
@@ -59,8 +50,6 @@ st-developer|step tools|steptools|theorem|datakit|cadexchanger|cad exchanger|ely
 okino|polytrans|meshlab|cura|ultimaker cura|prusaslicer|slic3r|simplify3d|netfabb|materialise|
 magics|3d builder|3mf consortium|3dsmax|maya|lightwave|cinema 4d|sketchfab|thingiverse|grabcad|
 github|gitlab|bitbucket|sourceforge|google drive|dropbox|onedrive|
-ezdxf|pythonocc|occ|trimesh|numpy stl|openpyxl|matplotlib|pdfkit|wkhtmltopdf|libharu|tcpdf|fpdf|dompdf|
-mupdf|pdftk|qpdf|libredwg|teigha|oda|open design alliance|lib3mf|assimp|fontforge|cairo graphics|
 nvidia|jetson|jetson nano|jetson xavier|jetson orin|raspberry|raspberry pi|raspberrypi|arduino|arduino uno|
 arduino nano|arduino mega|esp32|esp8266|stm32|teensy|beaglebone|realsense|intel realsense|kinect|dynamixel|
 ros|ros2|nema17|nema 17|nema23|nema 23|intel|amd|xilinx|nucleo|pixhawk|ardupilot|px4|vesc|gopro|logitech|

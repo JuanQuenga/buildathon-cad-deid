@@ -324,7 +324,7 @@ class IdentityPlan:
             return r if r != v else None
         e = self.entries.get("".join(key.split()))
         if e is not None:
-            if e.mode == FIELD and k in ("part_number", "part_name", "document_number", "free_text"):
+            if e.mode == FIELD and k in ("part_number", "document_number"):
                 return None   # generic-word entries only apply in identity slots (author, owner, ...)
             return self._render_entry(e, v)
         if k in IDENTITY_KINDS:
@@ -626,17 +626,6 @@ INFRA_DOMAINS = (
     "gstatic.com", "shields.io", "readthedocs.io", "readthedocs.org", "zenodo.org", "doi.org", "orcid.org",
     "wikipedia.org", "wikimedia.org", "archive.org", "google.com", "drive.google.com", "dropbox.com",
     "onedrive.live.com", "sharepoint.com", "box.com", "mega.nz", "wetransfer.com",
-    # mailbox providers: the local part identifies a person, the provider does not
-    "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com",
-    "yahoo.co.uk", "icloud.com", "me.com", "mac.com", "aol.com", "gmx.de", "gmx.net", "gmx.com", "web.de",
-    "mail.ru", "yandex.ru", "yandex.com", "qq.com", "163.com", "126.com", "protonmail.com", "proton.me",
-    "zoho.com", "naver.com", "free.fr", "orange.fr", "t-online.de", "libero.it",
-    # public software foundations / standards / publishers referenced in license and doc headers
-    # (source owners, web-source domains and part suppliers seen as companies stay identities)
-    "apache.org", "eclipse.org", "netbeans.org", "java.net", "oracle.com", "sun.com", "acm.org", "ieee.org",
-    "springer.com", "elsevier.com", "openstreetmap.org", "osm.org", "mapbox.com", "kicad.org",
-    "arduino.cc", "raspberrypi.com", "raspberrypi.org", "espressif.com", "st.com", "nvidia.com", "intel.com",
-    "mcneel.com", "autodesk360.com", "onshape.com", "3dcontentcentral.com",
 )
 
 _GENERIC_SLD = {"com", "edu", "ac", "co", "gov", "gob", "org", "net", "mil", "nic", "or", "ne", "go", "gv",
