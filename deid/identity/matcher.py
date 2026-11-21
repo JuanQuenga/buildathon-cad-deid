@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-SEP_FLEX = r"(?:[ _.\-]|%20){0,2}"   # between tokens of a flex entry
+SEP_FLEX = r"(?:[ _.,\-]|%20){0,2}"   # between tokens of a flex entry
 
 _SEP = object()  # trie symbol for a flexible separator
 _END = ""        # trie end marker key

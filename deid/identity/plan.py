@@ -23,7 +23,7 @@ from typing import Iterable, Optional
 
 from .aliases import TOKEN_RE, alias_token, apply_case, norm_key, norm_token
 from .matcher import Matcher
-from .vocab import HOST_GENERIC, PLACEHOLDERS, SOFTWARE, is_generic_token
+from .vocab import HOST_GENERIC, ORG_DESIGNATORS, PLACEHOLDERS, SOFTWARE, is_generic_token
 
 PLAN_FORMAT = 1
 
@@ -185,7 +185,7 @@ class IdentityPlan:
         def sub(m):
             t = m.group(0)
             k = norm_token(t)
-            if k in keep or len(k) <= 1:
+            if k in keep or len(k) <= 1 or k in ORG_DESIGNATORS:
                 return t
             a = self._token_alias(k)
             if len(a) != len(t):
@@ -198,7 +198,7 @@ class IdentityPlan:
         separators, possibly with tokens glued together)."""
         alias_chars = []
         for t in entry.tokens:
-            if t in entry.keep or len(t) <= 1:
+            if t in entry.keep or len(t) <= 1 or (t in ORG_DESIGNATORS and len(entry.tokens) > 1):
                 alias_chars.append(t)
             else:
                 alias_chars.append(self._token_alias(t))
