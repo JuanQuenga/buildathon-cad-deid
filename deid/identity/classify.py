@@ -22,6 +22,7 @@ import json
 import re
 
 from .aliases import norm_key
+from .discover import TITLE_LABEL
 from .plan import EMAIL_RE, PROTECTED_DOMAINS
 from .vocab import PLACEHOLDERS, SOFTWARE
 
@@ -205,7 +206,7 @@ def read_scan_db(db):
     import sqlite3
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     cur = con.execute("select path, kind, field, value from observations "
-                      "where kind in ('person','company','organization','account','username','email','domain','url') "
+                      "where kind in ('person','company','organization','account','username','email','domain','url','free_text') "
                       "order by path")
     last, buf = None, []
     for path, kind, field, value in cur:
@@ -215,6 +216,14 @@ def read_scan_db(db):
             yield last, buf
             buf = []
         last = path
+        if kind == "free_text":
+            # names next to title-block labels, emails inside free text
+            for m in TITLE_LABEL.finditer(value):
+                buf.append(("person", field + ".label." + m.group(1).lower(), m.group(2), ""))
+            if "@" in value:
+                for m in EMAIL_RE.finditer(value):
+                    buf.append(("email", field, m.group(0), ""))
+            continue
         if kind == "url":
             m = URL_IN.search(value)
             if m:
