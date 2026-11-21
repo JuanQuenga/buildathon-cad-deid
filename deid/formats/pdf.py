@@ -1580,7 +1580,7 @@ _E5_VENDOR_RX = re.compile(r"(?<![\w])(" + "|".join(re.escape(v).replace(r"\ ", 
 _E5_BOILER = [
     re.compile(r"(?i)(?:property of|propiedad de|propri[ée]t[ée] (?:de|d['’])|eigentum (?:der|des|von)|propriet[àa] (?:di|della)|"
                r"propietat de|propriedade d[aeo]s?)\s+(?:the\s+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\band\b|\bis\b|\bunless\b|\bany\b|\by\b|\bet\b|\bund\b|\be\b))"),
-    re.compile(r"(?i)(?:©|\(c\)|copyright)\s*(?:\(c\)\s*)?(?:\d{4}(?:\s*[-–,]\s*\d{2,4})*\s*)?(?:by\s+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\ball rights\b|\bunless\b|\d))"),
+    re.compile(r"(?i)(?:©|\(c\)|copyright)\s*(?:\(c\)\s*)?(?:\d{4}(?:\s*[-–,]\s*\d{2,4})*\s*)?(?:by[:\s]+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\ball rights\b|\bunless\b|\d))"),
     re.compile(r"(?i)\b(all rights reserved|alle rechte vorbehalten|todos los derechos reservados|tous droits r[ée]serv[ée]s)\b"),
     re.compile(r"(?i)(<?\s*(?:insert\s+)?(?:your\s+)?company(?:\s+name)?(?:\s+here)?\s*>?)"),
 ]
@@ -1662,6 +1662,11 @@ pamela rachel ruth sharon shirley stephanie susan virginia emily olivia sophia i
 hiroshi takashi kenji akira satoshi haruto yuto sota daiki kazuki ryota taro yuko yumi keiko naoko hana sakura
 raj rahul amit priya vikram arjun sanjay suresh ramesh anil sunil vijay ravi kumar deepak senthur sidheswar ajay
 mohammed ahmed hassan hussein karim tariq youssef omar fatima aisha leila
+maurice marius mathieu matthieu maxime quentin rémi remi romain sébastien thibault yves bastien cédric gaël
+giorgio luigi massimo maurizio nicolò riccardo roberto salvatore sergio stefano tommaso vittorio
+joão rui nuno tiago vasco miguel duarte
+piotr paweł pawel tomasz krzysztof michał michal marcin jakub łukasz lukasz agnieszka katarzyna
+jiří jiri petr tomáš tomas martin lukáš lukas ondřej ondrej
 """.split())
 _E14_NAME = re.compile(r"(?<![\w.])([A-ZÀ-Ý][a-zà-ÿ'’]{1,15}|[A-ZÀ-Ý]{2,15})((?:[ \-](?:[A-ZÀ-Ý]\.|[A-ZÀ-Ý][a-zà-ÿ'’]{1,20}|[A-ZÀ-Ý]{2,20})){1,3})(?![\w])")
 _E14_ORG = re.compile(r"(?<![\w])((?:[A-Z0-9][\w&’'\-.]*\s){0,5}?[A-Z0-9][\w&’'\-.]*,?\s(?:GmbH|Inc\.?|Ltd\.?|LLC|S\.L\.U?\.?|S\.A\.U?\.?|"
@@ -1749,6 +1754,33 @@ def e5_identities(src_path, plan):
     return e5_from_pages(pages, plan)
 
 
+_E16_EN_ABBR = set("""
+dwg drg chk chkd appd appv appr apprv qty mfg rev desc dia thk wt ref pos tol std approx max min ea pcs pc no nr num
+id ok mm cm cad cam pdf dxf dwf iso din ansi asme astm gdt ra rz hrc ds dr ck ap eng engr mat matl fin spec specs
+assy sht sz scl dept tel fax www http https com org net inc ltd llc gmbh corp co pty bv ag sa sl srl solidworks
+autocad inventor fusion catia creo freecad onshape solidedge rhino sketchup
+""".split())
+_E16_OWNER_END = re.compile(r"(?i)(?:property of(?: the)?|sole property of(?: the)?|propiedad(?: exclusiva)? de(?: la| el)?|"
+                            r"eigentum (?:der|des|von)|propri[ée]t[ée] (?:de|d['’])|propriet[àa] (?:di|della)|propietat de|"
+                            r"propriedade d[aeo]s?)\s*[:,]?$")
+
+
+def _e16_foreign_tokens(t: str) -> list:
+    """Title-block cell tokens that an English-centric extractor would not know: not an English
+    dictionary word, no digits, not a unit/material/abbreviation (Benennung, Maßstab, Fecha, 设计)."""
+    from deid.identity.vocab import is_word
+    out = []
+    for tok in TOKEN_RE.findall(t):
+        cjk = any("\u2e80" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" or "\u3040" <= ch <= "\u30ff" for ch in tok)
+        if any(ch.isdigit() for ch in tok) or len(tok) < (2 if cjk else 3):
+            continue
+        tl = tok.lower()
+        if not cjk and (is_word(tl) or tl in _E5_ENG_WORDS or tl in _E5_FUNC or tl in _E16_EN_ABBR):
+            continue
+        out.append(tok)
+    return out
+
+
 def e5_from_pages(pages, plan):
     """The E5/E5+ rules on positioned lines [(W, H, [(x0, y0, x1, y1, text)])] (text layer or OCR)."""
     cands = []
@@ -1764,6 +1796,15 @@ def e5_from_pages(pages, plan):
                 cands.append(m.group(1))
             if os.environ.get("DEID_PDF_E14", "1") == "1":
                 cands.extend(e14_candidates(t))
+            if os.environ.get("DEID_PDF_E16", "1") == "1":
+                if W and H and x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 80:
+                    cands.extend(("\x00tok", tok) for tok in _e16_foreign_tokens(t))
+                if _E16_OWNER_END.search(t):
+                    lh0 = max(y1 - y0, 1.0)
+                    nxt = sorted((b0 - y1, tt) for (a0, b0, a1, b1, tt) in lines
+                                 if 0 <= b0 - y1 < 2.5 * lh0 and a0 < x1 + 5 * lh0 and a1 > x0 - 5 * lh0 and tt.strip())
+                    if nxt:
+                        cands.append(" ".join(nxt[0][1].split()).rstrip(".,;"))
             # LABEL: value on one line
             m = re.match(r"^(.{2,30}?)\s*[:：]\s*(.{2,60})$", t)
             if m and _e5_label(m.group(1)) not in (None, "skip"):
@@ -1784,6 +1825,19 @@ def e5_from_pages(pages, plan):
                 cands.append(" ".join(tt.split()))
     out = {}
     for v in cands:
+        if isinstance(v, tuple):              # E16 single foreign title-block token
+            tok = v[1]
+            if tok in out:
+                continue
+            try:
+                if plan.replace_text(tok) != tok:
+                    continue
+                a = plan._render_tokens(tok)
+            except Exception:
+                continue
+            if a and a != tok:
+                out[tok] = a
+            continue
         v = v.strip().strip(":：;,")
         if v in out or not _e5_value_ok(v):
             continue
@@ -1996,7 +2050,7 @@ def e15_pdf_images(pdf, plan, ctx, mode="auto", textless_pages=()):
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e15"
+    version = "2e16"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
