@@ -59,12 +59,18 @@ def _unent(s: str) -> str:
                 return chr(int(g[2:], 16) if g[1] in "xX" else int(g[1:]))
             except (ValueError, OverflowError):
                 return m.group(0)
-        return {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}[g]
+        # '&amp;' decodes to a private marker so _ent can tell a literal '&' (re-escaped) from an
+        # undeclared/DTD entity reference that was left as is ('&amp;copy;' must not become '&copy;')
+        return {"amp": _AMP, "lt": "<", "gt": ">", "quot": '"', "apos": "'"}[g]
     return _ENT.sub(r, s)
+
+
+_AMP = "\ue000"
 
 
 def _ent(s: str, quote: str = "") -> str:
     s = re.sub(r"&(?![A-Za-z_][\w.\-]*;|#[0-9]+;|#x[0-9a-fA-F]+;)", "&amp;", s).replace("<", "&lt;").replace(">", "&gt;")
+    s = s.replace(_AMP, "&amp;")
     if quote == '"':
         s = s.replace('"', "&quot;")
     elif quote == "'":
@@ -199,7 +205,7 @@ def _kind_for(stack, attr_name=None) -> str:
 
 class SvgAdapter(Adapter):
     name = "svg"
-    version = "1"
+    version = "2"
     priority = 10
     magics = ("svg",)
     extensions = (".svg",)
