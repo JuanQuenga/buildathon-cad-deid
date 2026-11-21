@@ -1907,6 +1907,16 @@ reinhard ricard ricardo richard rob robert roberto robin rodrigo roger roland ro
 salvador samuel sandra sara sarah sebastian sebastián sergi sergio simon simone stefan stefano stephan stephane stéphane
 steve steven susanne sven teresa thomas thorsten tim timo tobias tom tomás tomas toni tony ulrich uwe valentin vicenç
 vicente victor víctor vincent wei werner william wolfgang xavier xavi yannick yuki yusuf zhang
+herbert hubert günther gunther manfred rainer jörg joerg kurt otto horst rolf dietmar volker sabine petra monika ursula
+birgit anja heike jutta silke kerstin tanja dagmar gabriele ingrid renate hermann walter wilhelm ernst karsten torsten
+dennis florian benedikt moritz leon finn jannik lennart malte ole henning holger jens björn kai nico sascha marvin
+george edward frederick stuart graham neil gary keith scott jason kyle tyler brandon joshua aaron sean shane craig derek
+douglas eric gregory harold howard jerry jesse joel kenneth larry lawrence patrick philip ralph raymond roy russell
+terry todd wayne brenda deborah donna jennifer jessica karen kimberly linda lisa margaret mary melissa michelle nancy
+pamela rachel ruth sharon shirley stephanie susan virginia emily olivia sophia isabella mia chloe grace zoe
+hiroshi takashi kenji akira satoshi haruto yuto sota daiki kazuki ryota taro yuko yumi keiko naoko hana sakura
+raj rahul amit priya vikram arjun sanjay suresh ramesh anil sunil vijay ravi kumar deepak senthur sidheswar ajay
+mohammed ahmed hassan hussein karim tariq youssef omar fatima aisha leila
 """.split())
 _E14_NAME = re.compile(r"(?<![\w.])([A-ZÀ-Ý][a-zà-ÿ'’]{1,15}|[A-ZÀ-Ý]{2,15})((?:[ \-](?:[A-ZÀ-Ý]\.|[A-ZÀ-Ý][a-zà-ÿ'’]{1,20}|[A-ZÀ-Ý]{2,20})){1,3})(?![\w])")
 _E14_ORG = re.compile(r"(?<![\w])((?:[A-Z0-9][\w&’'\-.]*\s){0,5}?[A-Z0-9][\w&’'\-.]*,?\s(?:GmbH|Inc\.?|Ltd\.?|LLC|S\.L\.U?\.?|S\.A\.U?\.?|"
@@ -1919,6 +1929,12 @@ _E14_INST = re.compile(r"(?<![\w])((?:(?:[A-Z][\w’'\-]+|of|de|del|für|fur|di|
 _E14_BY = re.compile(r"(?<![\w])(?:By|BY|Von|VON|Por|POR|Par|PAR|Author|Autor|Auteur)[:\s]+((?:[A-Z]\.\s?){0,3}[A-Z][A-Za-zà-ÿ'’\-]{1,20}(?:\s[A-Z][A-Za-zà-ÿ'’\-]{1,20}){0,2})")
 _E14_AMBIG = set("mark max will grant bill frank rose may june art chip dean drew gene guy jack lance miles nick pat ray "
                  "rob robin victor van sky august bob tony".split())
+_E14_PART = set("""
+bolt washer nut screw plate bracket shaft gear housing cover base mount holder spacer pin ring bearing frame motor arm
+link block clamp support rail rod tube pipe spring cap lid panel board wheel pulley belt axle hinge knob handle nozzle
+sheet assembly part drawing view section detail steel aluminium aluminum brass plastic body front back left right top
+bottom side upper lower inner outer main sub new old adapter connector cable box case plug socket switch sensor
+""".split())
 _E14_FUNC = set("of de del für fur di du la des the and y et und".split())
 
 
@@ -1930,7 +1946,9 @@ def _e14_name_ok(first: str, rest: str) -> bool:
     last = toks[-1].rstrip(".")
     if len(last) <= 1 or last.lower() in _E5_ENG_WORDS or last.lower() in _E5_FUNC or last.lower() in _TB_GENERIC:
         return False
-    if (is_word(first.lower()) or first.lower() in _E14_AMBIG) and any(is_word(t.lower().rstrip(".")) for t in toks[1:]):
+    if any(t.lower().rstrip(".") in _E14_PART for t in toks[1:]):
+        return False
+    if first.lower() in _E14_AMBIG and any(is_word(t.lower().rstrip(".")) for t in toks[1:]):
         return False                         # "Mark Holes", "Max Speed"
     return True
 
