@@ -132,6 +132,9 @@ def main():
     ap.add_argument("--workers", type=int, default=32)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--go", action="store_true")
+    ap.add_argument("--test-one", action="store_true",
+                    help="copy ONE small already-uploaded object from --from to the same key under --to, "
+                         "check size/MD5 of the copy, report; no local hashing")
     ap.add_argument("--probe", action="store_true",
                     help="read-only: list the earlier attempt and HEAD one of its objects, then stop")
     a = ap.parse_args()
@@ -139,6 +142,32 @@ def main():
     db_, dp = parse(a.dst)
     att = os.path.abspath(a.attempt)
     tok = Tok(a.token_file)
+    if a.test_one:
+        src = list_prefix(sb, sp, tok)
+        print(f"list {a.src}: OK, {len(src)} objects")
+        cands = sorted((sz, k) for k, (sz, et) in src.items()
+                       if k.startswith(sp + "corpus/") and 0 < sz < 200_000 and len(et) == 32)
+        if not cands:
+            print("no small object with an MD5 ETag uploaded yet; try again later")
+            return 1
+        sz, key = cands[0]
+        rel = key[len(sp):]
+        dkey = dp + rel
+        conn = http.client.HTTPSConnection(HOST, timeout=60)
+        conn.request("PUT", f"/{db_}/{enc(dkey)}", headers={
+            "Authorization": f"Bearer {tok.get()}", "Content-Length": "0",
+            "x-goog-copy-source": f"/{sb}/{enc(key)}"})
+        r = conn.getresponse()
+        body = r.read()
+        print(f"server-side copy of one {sz}-byte object: HTTP {r.status}")
+        if r.status != 200:
+            print("copy NOT permitted with this token (" + body[:160].decode("utf-8", "replace").replace("\n", " ") + ")")
+            return 2
+        dst = list_prefix(db_, dkey, tok)
+        ok = dst.get(dkey) == src[key]
+        print("copy verified: same size and MD5 at the destination" if ok else f"copy present but differs: {dst.get(dkey)}")
+        print(f"(destination object: {dkey[len(dp):]} under --to; upload.py overwrites it if attempt content differs)")
+        return 0 if ok else 3
     if a.probe:
         src = list_prefix(sb, sp, tok)
         print(f"list {a.src}: OK, {len(src)} objects (upload.py needs this too)")
