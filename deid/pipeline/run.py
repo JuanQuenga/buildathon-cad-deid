@@ -105,8 +105,38 @@ def _scan_init(tmp_root):
     return handle
 
 
+def _clean(v):
+    if isinstance(v, str):
+        try:
+            v.encode("utf-8")
+        except UnicodeEncodeError:
+            v = v.encode("utf-8", "surrogatepass").decode("utf-8", "replace")
+            v = "".join(c if not 0xD800 <= ord(c) <= 0xDFFF else "\ufffd" for c in v)
+    return v
+
+
+def _clean_rows(rows):
+    return [tuple(_clean(x) for x in row) for row in rows]
+
+
 def _store_scan(con, path, r, parent=None):
+    try:
+        _store_scan_raw(con, path, r, parent)
+    except Exception as e:  # never lose the run over one record
+        db.delete_scan_rows(con, path)
+        con.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (path, r.get("size"), r.get("sha256"), r.get("magic"), r.get("adapter"),
+                     r.get("adapter_version"), "error", "{}", "[]", f"store: {type(e).__name__}: {e}"[:300],
+                     r.get("seconds"), parent))
+
+
+def _store_scan_raw(con, path, r, parent=None):
     db.delete_scan_rows(con, path)
+    r = dict(r)
+    for k in ("obs", "refs", "children"):
+        r[k] = _clean_rows(r[k])
+    for k in ("fingerprint", "notes", "error", "magic"):
+        r[k] = _clean(r.get(k))
     con.execute("INSERT INTO files VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (path, r["size"], r["sha256"], r["magic"], r["adapter"], r["adapter_version"],
                  r["status"], r["fingerprint"], r["notes"], r["error"], r["seconds"], parent))
@@ -168,6 +198,7 @@ def cmd_scan(args):
     sizes = {r["path"]: r["size"] for r in rows}
     pool = Pool(args.jobs, _scan_init, (tmp_root,), args.mem_gb * GB)
     n = 0
+    last_commit = time.monotonic()
     try:
         for path, payload, res in pool.run(todo):
             if "_pool_error" in res:
@@ -180,8 +211,9 @@ def cmd_scan(args):
                 _store_scan(con, d["path"], _retarget(res, path, d["path"]))
                 prog.tick("dup", d["size"])
             n += 1
-            if n % 200 == 0:
+            if n % 50 == 0 or time.monotonic() - last_commit > 20:
                 con.commit()
+                last_commit = time.monotonic()
     finally:
         con.commit()
         pool.close()
@@ -289,12 +321,13 @@ def cmd_rewrite(args):
 
     def store(path, res):
         key, o, size, src, dst = meta[path]
+        res = {k: _clean(v) for k, v in res.items()}
         rcon.execute("INSERT OR REPLACE INTO results VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (path, o, key, res["status"], res.get("adapter", ""), res.get("adapter_version", ""),
-                      json.dumps(res.get("counts", {}), default=str),
-                      json.dumps(res.get("notes", []), default=str), res.get("error"),
+                      _clean(json.dumps(res.get("counts", {}), default=str)),
+                      _clean(json.dumps(res.get("notes", []), default=str)), res.get("error"),
                       res.get("out_size", -1), res.get("seconds", 0),
-                      json.dumps(res.get("children", []), default=str), res.get("magic", ""), size))
+                      _clean(json.dumps(res.get("children", []), default=str)), res.get("magic", ""), size))
         prog.tick(res["status"], size)
     try:
         for path, payload, res in pool.run(todo):
@@ -310,7 +343,7 @@ def cmd_rewrite(args):
                 r2["out_size"] = os.path.getsize(meta[d][4])
                 store(d, r2)
             n += 1
-            if n % 200 == 0:
+            if n % 50 == 0:
                 rcon.commit()
     finally:
         rcon.commit()
