@@ -138,3 +138,13 @@ for embedded files they don't understand themselves.
 `python -m deid.pipeline one --adapter NAME path/to/file` prints the scan result, rewrites with
 `NullPlan` (or `--plan WORK/plan`) into a temp dir, runs verify and prints the outcome.
 Sample files: `cad-deid/sample/files/` (private, outside the repo).
+
+## Environment and dependencies
+
+Shared venv: `uv sync --extra dev` creates `.venv/` (Python 3.13); run things with `.venv/bin/python -m ...`
+(uv binary: `~/.local/share/mise/installs/uv/0.13.6/uv-x86_64-unknown-linux-gnu/uv`).
+Available: ezdxf, pikepdf, olefile, pillow, lxml, numpy, libarchive-c (+ system libarchive / bsdtar).
+To add a dependency: add one line to `pyproject.toml` with its license in a comment, `uv lock`,
+commit only `pyproject.toml` + `uv.lock` in that commit, and mention it in `README.md` → Dependencies.
+Prefer MIT/BSD/Apache. Copyleft tools (LibreDWG, Ghostscript, PyMuPDF) only as external
+executables called by subprocess, documented in README.

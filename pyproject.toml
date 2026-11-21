@@ -1,0 +1,25 @@
+[project]
+name = "deid"
+version = "0.1.0"
+description = "De-identify an engineering CAD corpus with consistent pseudonyms while keeping files usable"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+  "ezdxf>=1.3",        # MIT  - DXF read/write
+  "pikepdf>=9",        # MPL-2.0 - PDF structure (qpdf, Apache-2.0)
+  "olefile>=0.47",     # BSD  - OLE/CFB streams
+  "pillow>=11",        # MIT-CMU - images
+  "lxml>=5",           # BSD  - XML/SVG
+  "numpy>=2",          # BSD
+  "libarchive-c>=5",   # CC0  - bindings to system libarchive (BSD) for 7z/rar read, 7z write
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deid"]
