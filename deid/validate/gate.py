@@ -275,7 +275,8 @@ class _OutView:
     """Minimal plan-like object over output paths for refs.resolve()."""
 
     def __init__(self, inventory):
-        self.inventory = list(inventory) + [p.replace("!/./", "!/") for p in inventory if "!/./" in p]
+        inventory = list(inventory)
+        self.inventory = list(dict.fromkeys(inventory + [p.replace("!/./", "!/") for p in inventory if "!/./" in p]))
         self._inv_index = None
 
     def _index(self):
@@ -296,7 +297,7 @@ def check_refs(plan, scon, out_paths, rep):
         return
     members = [p for (p,) in scon.execute("SELECT path FROM files WHERE parent IS NOT NULL")]
     inv = getattr(plan, "inventory", None) or list(out_paths)   # the resolver's universe (full manifest)
-    view = _OutView([plan.map_path(p) for p in inv] + [plan.map_path(m) for m in members])
+    view = _OutView(dict.fromkeys([plan.map_path(p) for p in inv] + [plan.map_path(m) for m in members]))
     c = collections.Counter()
     bad = []
     for path, raw, kind in scon.execute("SELECT path, raw, kind FROM refs"):
