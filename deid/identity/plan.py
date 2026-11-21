@@ -28,9 +28,12 @@ from .vocab import HOST_GENERIC, PLACEHOLDERS, SOFTWARE, is_generic_token
 PLAN_FORMAT = 1
 
 # Kinds whose values are aliased by alias() even when not pre-registered.
+# part_number / part_name / document_number are NOT generated: a generic part
+# name ("Bracket") identifies nobody, and generating would desynchronise the
+# name from the (dictionary-mapped) file name.  They go through the dictionary.
 IDENTITY_KINDS = {
-    "person", "company", "organization", "organisation", "account", "username", "project",
-    "part_number", "part_name", "document_number", "address", "phone", "email", "domain", "url",
+    "person", "company", "organization", "organisation", "account", "username",
+    "address", "phone", "email", "domain", "url",
 }
 
 # Match modes
@@ -254,7 +257,7 @@ class IdentityPlan:
         if e is not None:
             return self._render_entry(e, v)
         if k in IDENTITY_KINDS:
-            if not any(ch.isalpha() for ch in key) and k not in ("part_number", "document_number", "phone"):
+            if not any(ch.isalpha() for ch in key) and k != "phone":
                 return None
             return self._render_tokens(v)
         r = self.replace_text(v)

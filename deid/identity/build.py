@@ -40,7 +40,10 @@ def _all_generic(v):
     return bool(toks) and all(is_plain_token(t) for t in toks)
 
 
-def _mode_for(value, *, strong=True):
+NAME_KINDS = {"person", "company", "organization", "organisation"}
+
+
+def _mode_for(value, *, strong=True, kind=None):
     key = norm_key(value)
     c = key.replace(" ", "")
     if not c or key in PLACEHOLDERS:
@@ -49,6 +52,9 @@ def _mode_for(value, *, strong=True):
         return FIELD
     if len(c) < 4 or c.isdigit():
         return FIELD
+    toks = key.split()
+    if kind in NAME_KINDS and len(toks) >= 2 and sum(len(t) >= 2 for t in toks) >= 2 and len(c) >= 6:
+        return FLEX  # 'Rose Hunter': dictionary words, but a full name is an identity
     if _all_generic(value):
         return EXACT if len(c) >= 12 and len(key.split()) >= 2 else FIELD
     return FLEX if strong else EXACT
@@ -74,7 +80,7 @@ class Builder:
         if not value or not value.strip():
             return
         if mode is None:
-            mode = _mode_for(value)
+            mode = _mode_for(value, kind=kind)
             if mode is None:
                 return
         self.entries.append(Entry(value=value.strip(), kind=kind, mode=mode, keep=tuple(keep),
@@ -82,7 +88,7 @@ class Builder:
         self.stats[f"{kind}:{mode}"] += 1
 
     # ---------------------------------------------------------------- paths
-    def add_domain(self, host, origin):
+    def add_domain(self, host, origin, label_flex=True):
         host = host.strip().strip(".")
         if not host or "." not in host:
             return
@@ -96,7 +102,7 @@ class Builder:
         self.add(host, "domain", EXACT, keep, origin)
         if reg != host.lower():
             self.add(reg, "domain", EXACT, keep, origin)
-        for lab in labels[:-1]:
+        for lab in (labels[:-1] if label_flex else []):
             if lab.lower() in HOST_GENERIC:
                 continue
             m = _mode_for(lab)
@@ -206,15 +212,15 @@ class Builder:
         if kind in ("email",):
             local, _, dom = v.partition("@")
             if dom:
-                self.add_domain(dom, origin + ".email")
+                self.add_domain(dom, origin + ".email", label_flex=False)
             if local and norm_key(local) not in PLACEHOLDERS and len(_compact(local)) >= 3:
                 self.add(local, "email_local", FLEX if len(_compact(local)) >= 4 else FIELD, (), origin)
             return
         if kind == "domain":
-            self.add_domain(v, origin + ".domain")
+            self.add_domain(v, origin + ".domain", label_flex=False)
             return
         if kind in STRONG_KINDS:
-            m = _mode_for(v)
+            m = _mode_for(v, kind=kind)
             if m:
                 self.add(v, kind, m, (), origin + ":" + ",".join(sorted(fields))[:80], count=n, sources=f)
             return
@@ -231,7 +237,7 @@ class Builder:
                 mode = cols[2] if len(cols) > 2 and cols[2] else None
                 keep = tuple(x for x in cols[3].split(",") if x) if len(cols) > 3 else ()
                 if kind == "domain":
-                    self.add_domain(value, "table")
+                    self.add_domain(value, "table", label_flex=False)
                 elif kind == "email":
                     self._observation("email", value, 1, 1, {"table"}, "table")
                 else:
