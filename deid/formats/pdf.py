@@ -1435,6 +1435,40 @@ def _global_sweep_tokens(plan) -> dict:
     return g
 
 
+_CAD_SIBLING = re.compile(r"(?i)\.(step|stp|sldprt|sldasm|slddrw|ipt|iam|idw|par|psm|asm|prt|x_t|igs|iges|fcstd|dxf|dwg|catpart|catproduct|f3d)(\.\d+)?$")
+
+
+def _sibling_model_tokens(src_path: str, texts) -> set:
+    """Folded tokens of this drawing's text that a CAD model in the same folder also carries (product
+    names, part titles, authors): the local sweep leaves them alone so drawing and model keep agreeing."""
+    try:
+        d = os.path.dirname(src_path)
+        sib = [os.path.join(d, n) for n in sorted(os.listdir(d)) if _CAD_SIBLING.search(n)][:6]
+    except OSError:
+        return set()
+    if not sib:
+        return set()
+    blobs = []
+    for f in sib:
+        try:
+            with open(f, "rb") as fh:
+                blobs.append(fh.read(16 << 20).lower())
+        except OSError:
+            pass
+    out = set()
+    seen = set()
+    for page in texts or ():
+        for t in TOKEN_RE.findall(page):
+            k = t.lower()
+            if len(k) < 3 or k in seen:
+                continue
+            seen.add(k)
+            enc = (k.encode("utf-8", "ignore"), k.encode("utf-16-le", "ignore"))
+            if any(e in b for b in blobs for e in enc):
+                out.add(_fold(t))
+    return out
+
+
 def sweep_tokens(lp, texts, keep=()) -> dict:
     """Completeness pass for one PDF: every token this PDF already gets replaced somewhere (plan entries,
     title-block cells, boilerplate owners ...) is replaced at every other occurrence too - other lines,
@@ -2361,6 +2395,8 @@ class PdfAdapter(Adapter):
                 keep = set()
                 for v in list(stems) + list(_model_values(getattr(ctx, "logical_path", "") or "")):
                     keep.update(_fold(t) for t in TOKEN_RE.findall(v))
+                if not getattr(ctx, "container_chain", ()):
+                    keep |= _sibling_model_tokens(src_path, texts)
                 sw = sweep_tokens(plan, texts, keep)
             except Exception:
                 sw = {}
