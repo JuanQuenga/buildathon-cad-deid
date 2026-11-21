@@ -44,6 +44,7 @@ from pikepdf import Name, String, Array, Dictionary, Stream, Operator, ContentSt
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult, Observation,
                       Reference, REWRITTEN, VERIFIED_UNCHANGED, COPIED_UNSUPPORTED, SOURCE_EXCEPTION)
 from deid.formats import _nativeutil as nu
+from deid.identity.aliases import TOKEN_RE
 
 try:  # pdfminer.six (MIT): encodings, glyph names, standard-14 metrics
     from pdfminer.latin_enc import ENCODING as _LATIN_ENC
@@ -1121,6 +1122,47 @@ def _xml_escape_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# E7: document metadata (Info Title/Subject/Keywords, XMP dc:title/description/subject, pdf:Keywords)
+# get the plan's token pseudonyms in every PDF (numbers and generic producer words kept)
+_E7_INFO = ("/Title", "/Subject", "/Keywords")
+_E7_XMP = ("dc:title", "dc:description", "dc:subject", "pdf:Keywords")
+_E7_KEEP = set("""
+microsoft word excel powerpoint visio office sheet untitled unbenannt unnamed sans titre sin titulo título
+doc docx xls xlsx ppt pptx pdf dwg dxf rtf txt drawing page layout model print the of and
+users home documents desktop downloads var folders tmp temp
+""".split())
+
+
+def e7_render(plan, v: str) -> str:
+    if os.environ.get("DEID_PDF_E7", "1") != "1" or not v or not v.strip():
+        return v
+    try:
+        nv = plan.replace_text(v)
+    except Exception:
+        nv = v
+
+    def sub(m):
+        t = m.group(0)
+        if len(t) <= 1 or any(ch.isdigit() for ch in t) or t.lower() in _E7_KEEP:
+            return t
+        try:
+            return plan._render_tokens(t)
+        except Exception:
+            return t
+    return TOKEN_RE.sub(sub, nv)
+
+
+_E7_XMP_BLOCK = re.compile(r"<(" + "|".join(re.escape(t) for t in _E7_XMP) + r")\b([^>]*)>(.*?)</\1>", re.S)
+
+
+def _e7_xmp(text: str, plan) -> str:
+    def block(m):
+        inner = re.sub(r">([^<>]*[^\s<>][^<>]*)<", lambda mm: ">" + _xml_escape_text(e7_render(plan, _unxml(mm.group(1)))) + "<",
+                       ">" + m.group(3) + "<")[1:-1]
+        return f"<{m.group(1)}{m.group(2)}>{inner}</{m.group(1)}>"
+    return _E7_XMP_BLOCK.sub(block, text)
+
+
 def rewrite_xmp_text(text: str, plan) -> str:
     """Replace identifying values inside an XMP packet without breaking XML:
     leaf element texts and attribute values are unescaped, replaced, re-escaped."""
@@ -1139,12 +1181,15 @@ def rewrite_xmp_text(text: str, plan) -> str:
             return m.group(0)
         v = _unxml(raw)
         nv = nu.sub_value(plan, v)
+        if q in _E7_XMP:
+            nv = e7_render(plan, nv)
         if nv == v:
             return m.group(0)
         return f' {q}="{_xml_escape_text(nv).replace(chr(34), "&quot;")}"'
 
     text = _XMP_LEAF.sub(leaf, text)
     text = _XMP_ATTR.sub(attr, text)
+    text = _e7_xmp(text, plan)
     return text
 
 
@@ -1303,7 +1348,7 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2"
+    version = "2e7"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1447,6 +1492,8 @@ class PdfAdapter(Adapter):
                             if t is None:
                                 continue
                             nv = nu.sub_value(plan, t, INFO_KIND.get(str(k)) or None)
+                            if str(k) in _E7_INFO:
+                                nv = e7_render(plan, nv)
                             if nv != t:
                                 info[k] = String(nv)
                                 gw.changed += 1
