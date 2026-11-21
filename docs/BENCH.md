@@ -51,6 +51,18 @@ Notes
   rewritten 1,310, verified_unchanged 180, copied_unsupported 10, no fallbacks.
 * Full scan, big-file phase (largest first, 6 jobs): 70-200 MB/s depending on machine load.
 
-## Full corpus
+## Full corpus, attempt-1 (2026-11-20, 188,722 files, 139.7 GB)
 
-(to be filled after the first full run)
+Shared 16-core machine (load 7-35 from other jobs), Btrfs, frozen code (branch `attempt-1`).
+
+| Stage | Wall | Notes |
+|---|---:|---|
+| scan (final pass, 6 workers) | 12.5 min | 107k files rescanned after adapter version bumps; earlier passes overlapped the download |
+| plan | 3.5 min | 8,336 entries |
+| rewrite | ~60 min | 4 then 8 workers (restarts kept finished files); peak ~290 files/s on small files |
+| validate (8 workers, full leak scan incl. decoded streams) | 15 min | |
+| package | 20 s | reflinked corpus |
+
+Two catastrophic regex backtracking bugs (UNV numeric lines, STEP header sniff on C sources)
+were found at full scale and fixed with possessive quantifiers; before the fixes single archives
+held a worker for 20-60 min.
