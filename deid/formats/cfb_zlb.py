@@ -114,6 +114,10 @@ def rewrite(data, accounts, cad_reference):
 # OLE round 2: saving accounts inside binary single-record ZLB streams (display lists, visual states)
 # ---------------------------------------------------------------------------
 MAX_BIN_SIZE = 64 << 20
+# accounts (>= 5 chars, not dictionary words) are also replaced inside longer tokens ("ENGR<account>"),
+# as a substring search would still find them there
+import os as _os
+SUBSTR = _os.environ.get("DEID_CFB_ACCOUNT_SUBSTR", "1") == "1"
 
 
 def payload_any(data, max_size=MAX_BIN_SIZE):
@@ -162,9 +166,11 @@ def rewrite_binary(data, pairs):
             except UnicodeEncodeError:
                 continue
             if enc == "utf-16-le":
-                pat = re.compile(rb"(?<![A-Za-z0-9]\x00)" + re.escape(o) + rb"(?![A-Za-z0-9]\x00)", re.I)
+                pat = re.compile((rb"(?<![A-Za-z0-9]\x00)" if not SUBSTR else b"") + re.escape(o) +
+                                 (rb"(?![A-Za-z0-9]\x00)" if not SUBSTR else b""), re.I)
             else:
-                pat = re.compile(rb"(?<![A-Za-z0-9])" + re.escape(o) + rb"(?![A-Za-z0-9])", re.I)
+                pat = re.compile((rb"(?<![A-Za-z0-9])" if not SUBSTR else b"") + re.escape(o) +
+                                 (rb"(?![A-Za-z0-9])" if not SUBSTR else b""), re.I)
             for m in pat.finditer(raw):
                 src = raw[m.start():m.end()].decode(enc, "replace")
                 rep = _case_like(src, alias).encode(enc)
@@ -227,9 +233,11 @@ def _replace_accounts(raw, pairs):
             except UnicodeEncodeError:
                 continue
             if enc == "utf-16-le":
-                pat = re.compile(rb"(?<![A-Za-z0-9]\x00)" + re.escape(o) + rb"(?![A-Za-z0-9]\x00)", re.I)
+                pat = re.compile((rb"(?<![A-Za-z0-9]\x00)" if not SUBSTR else b"") + re.escape(o) +
+                                 (rb"(?![A-Za-z0-9]\x00)" if not SUBSTR else b""), re.I)
             else:
-                pat = re.compile(rb"(?<![A-Za-z0-9])" + re.escape(o) + rb"(?![A-Za-z0-9])", re.I)
+                pat = re.compile((rb"(?<![A-Za-z0-9])" if not SUBSTR else b"") + re.escape(o) +
+                                 (rb"(?![A-Za-z0-9])" if not SUBSTR else b""), re.I)
             for m in pat.finditer(raw):
                 src = raw[m.start():m.end()].decode(enc, "replace")
                 rep = _case_like(src, alias).encode(enc)
