@@ -139,7 +139,7 @@ class IdentityPlan:
                 old.sources = max(old.sources, e.sources)
         for k in [k for k, e in self.entries.items() if e.kind == "domain" and is_infra_domain(e.value)]:
             del self.entries[k]
-        # A domain whose registrable part is also a project/account name ('step.parts'
+        # A domain whose registrable part is also a project/account name ('zorb.parts'
         # as repo name and as web site) renders that part like the name: no kept TLD.
         for e in list(self.entries.values()):
             if e.kind != "domain" or not e.keep:

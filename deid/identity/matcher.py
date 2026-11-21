@@ -4,8 +4,8 @@ Entries are identity values split into normalised tokens.  A character trie
 over all entries is compiled to one regular expression (case-insensitive),
 with a flexible separator between tokens for "flex" entries:
 
-    "Source-Robotics" matches  Source-Robotics, source_robotics, SOURCE ROBOTICS,
-                               SourceRobotics, Source%20Robotics
+    "Zorblax-Works" matches  Zorblax-Works, zorblax_works, ZORBLAX WORKS,
+                               ZorblaxWorks, Zorblax%20Works
 
 Boundaries: a match must not be preceded by a letter/digit, and must be
 followed by a non-alphanumeric char, OR by a case/class transition

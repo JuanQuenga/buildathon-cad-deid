@@ -168,7 +168,7 @@ def is_plain_token(tok: str) -> bool:
 def is_generic_token(tok: str) -> bool:
     """Generic at sub-token level: also camelCase / compounds of words and
     engineering-word+digits (e.g. 'ToolChanger', 'benchtop', 'assembly2').
-    A dictionary word glued to digits ('PAROL6', 'Atom01') is NOT generic:
+    A dictionary word glued to digits ('ZORB7', 'Quux01') is NOT generic:
     that shape is typical of product names."""
     import re as _re
     t = tok.lower()
