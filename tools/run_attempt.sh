@@ -6,7 +6,7 @@
 set -euo pipefail
 IN=$(realpath "$1"); MAN=$(realpath "$2"); WORK=$(realpath -m "$3"); ATT=$(realpath -m "$4"); JOBS=${5:-6}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-PY="$REPO/.venv/bin/python"
+PY="${PY:-$REPO/.venv/bin/python}"   # override to run a frozen worktree with the shared venv
 mkdir -p "$WORK"
 exec 9>"$WORK/.run_attempt.lock"
 flock -n 9 || { echo "another run_attempt.sh holds $WORK"; exit 1; }

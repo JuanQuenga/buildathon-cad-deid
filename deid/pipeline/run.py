@@ -364,6 +364,10 @@ def cmd_rewrite(args):
         sha = subprocess.run(["git", "-C", os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                               "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         rcon.execute("INSERT OR REPLACE INTO meta VALUES('git_sha', ?)", (sha,))
+        dirty = subprocess.run(["git", "-C", os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                "status", "--porcelain", "--untracked-files=no", "--", "deid"],
+                               capture_output=True, text=True).stdout.strip()
+        rcon.execute("INSERT OR REPLACE INTO meta VALUES('git_dirty', ?)", ("1" if dirty else "",))
     except OSError:
         pass
     rcon.commit()

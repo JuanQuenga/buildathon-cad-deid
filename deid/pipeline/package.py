@@ -56,11 +56,12 @@ def cmd_package(args):
         n += 1
     # 2. code
     repo = os.path.abspath(args.repo)
-    sha = git(repo, "rev-parse", "HEAD")
+    rewrite_sha = dict(rcon.execute("SELECT k, v FROM meta")).get("git_sha", "")
+    sha = rewrite_sha or git(repo, "rev-parse", "HEAD")   # code that produced the corpus
     dirty = git(repo, "status", "--porcelain", "--untracked-files=no")
     code = os.path.join(attempt, "code")
     os.makedirs(code)
-    data = subprocess.run(["git", "-C", repo, "archive", "--format=tar", "HEAD"], capture_output=True,
+    data = subprocess.run(["git", "-C", repo, "archive", "--format=tar", sha], capture_output=True,
                           check=True).stdout
     with tarfile.open(fileobj=io.BytesIO(data)) as t:
         for m in t.getmembers():
@@ -73,7 +74,6 @@ def cmd_package(args):
     with open(os.path.join(code, "SOURCE_COMMIT.txt"), "w") as f:
         f.write(f"{sha}\n")
     # 3. README.txt
-    rewrite_sha = dict(rcon.execute("SELECT k, v FROM meta")).get("git_sha", "")
     summary_path = os.path.join(args.work, "validate", "summary.txt")
     summary = open(summary_path).read() if os.path.exists(summary_path) else "(validation not run)\n"
     readme = render_readme(sha, dirty, rewrite_sha, plan.version, rows, out_paths, res, summary)
