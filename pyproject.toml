@@ -13,6 +13,7 @@ dependencies = [
   "numpy>=2",          # BSD
   "libarchive-c>=5",   # CC0  - bindings to system libarchive (BSD) for 7z/rar read, 7z write
   "pdfminer.six>=20240706", # MIT - PDF font encodings, glyph list, standard-14 metrics (docs-native)
+  "pyahocorasick>=2.1",  # BSD-3 - multi-pattern leak scan
 ]
 
 [project.optional-dependencies]
