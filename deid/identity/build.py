@@ -336,6 +336,26 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
                     or __import__("re").match(r"^\d+d", norm_token(toks[0]))):
                 e.mode = FIELD
                 b.stats["flex_to_field_generic"] += 1
+    # general vocabulary rule: values that occur across many unrelated owners' trees in the
+    # input corpus (licence/copyright boilerplate, font foundries, title-block labels, library
+    # names) are not identities of any one owner -> FIELD (identity fields only, never free text)
+    from .spread import SPREAD_MAX
+    spread = {}
+    for d in identity_dirs(plan_dir):
+        sp = os.path.join(d, "entry-spread.tsv")
+        if os.path.exists(sp):
+            with open(sp, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith("#"):
+                        continue
+                    cols = line.rstrip("\n").split("\t")
+                    if len(cols) >= 3:
+                        spread[norm_key(cols[0])] = int(cols[2])
+            break
+    for e in b.entries:
+        if e.mode != FIELD and not e.origin.startswith("path.") and spread.get(norm_key(e.value), 0) > SPREAD_MAX:
+            e.mode = FIELD
+            b.stats["spread_to_field"] += 1
     plan = IdentityPlan(b.entries, secret, inventory,
                         meta={"stats": dict(b.stats), "tables": [os.path.basename(t) for t in tables]})
     save_plan(plan, plan_dir)
