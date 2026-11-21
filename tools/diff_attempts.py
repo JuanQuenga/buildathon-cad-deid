@@ -38,6 +38,9 @@ def _init(_):
     return h
 
 
+UNCHANGED = {"copied_unsupported", "verified_unchanged", "source_exception", "fallback_copy"}
+
+
 def load(work):
     con = sqlite3.connect(f"file:{work}/results.sqlite?mode=ro", uri=True)
     return {p: (o, s, a) for p, o, s, a in con.execute("SELECT path, out_path, status, adapter FROM results")}
@@ -66,6 +69,7 @@ def main():
     status_moves = collections.Counter()
     rows = []
     tasks = []
+    pending_unchanged = []
     for p in sorted(set(A) | set(B)):
         if p not in A or p not in B:
             cats[ext_of(p)]["only_in_" + ("a" if p in A else "b")] += 1
@@ -73,12 +77,20 @@ def main():
         (oa, sa, _), (ob, sb, adb) = A[p], B[p]
         if sa != sb:
             status_moves[f"{sa} -> {sb}"] += 1
+        rows.append((p, oa, ob, sa, sb))
+        if sa in UNCHANGED and sb in UNCHANGED:
+            # both outputs are the input's own bytes: identical by construction, no need to read
+            cats[ext_of(p)]["same" if oa == ob else "path_changed"] += 1
+            if oa != ob:
+                pending_unchanged.append((p, oa, ob, sa, sb))
+            continue
         fa, fb = os.path.join(a.a_corpus, oa), os.path.join(a.b_corpus, ob)
         tasks.append((p, (fa, fb), 600 + os.path.getsize(fa) / 50e6))
-        rows.append((p, oa, ob, sa, sb))
     meta = {r[0]: r for r in rows}
     out = open(os.path.join(a.out, "diff_files.tsv"), "w", encoding="utf-8")
     out.write("input\tout_a\tout_b\tstatus_a\tstatus_b\tcategory\n")
+    for p, oa, ob, sa, sb in pending_unchanged:
+        out.write(f"{p}\t{oa}\t{ob}\t{sa}\t{sb}\tpath_changed\n")
     pool = Pool(a.jobs, _init, (None,), 2 << 30)
     try:
         for p, _, same in pool.run(tasks):
