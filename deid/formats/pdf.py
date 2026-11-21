@@ -1899,6 +1899,28 @@ def _scrub_targets(pdf):
     return out
 
 
+def _forced_alias(key: str, text: str) -> str:
+    """Deterministic same-length alias that differs from text in every letter/digit (keyed by the plan
+    entry, so the same value gets the same alias in every file)."""
+    h = hashlib.sha256(("deid-forced:" + key).encode("utf-8")).digest()
+    out = []
+    for i, ch in enumerate(text):
+        b = h[i % len(h)]
+        if "a" <= ch.lower() <= "z":
+            c = chr(ord("a") + b % 26)
+            if c == ch.lower():
+                c = chr(ord("a") + (b + 1) % 26)
+            out.append(c.upper() if ch.isupper() else c)
+        elif ch.isdigit():
+            c = str(b % 10)
+            if c == ch:
+                c = str((b + 1) % 10)
+            out.append(c)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def scrub_nontext_streams(pdf, plan, counts) -> int:
     if os.environ.get("DEID_PDF_SCRUB_STREAMS", "1") != "1":
         return 0
@@ -1931,6 +1953,8 @@ def scrub_nontext_streams(pdf, plan, counts) -> int:
             try:
                 text = raw.decode(enc)
                 alias = base._render_entry(ent, text)
+                if alias == text:
+                    alias = _forced_alias(k, text)   # plan alias equals the original (t.co): streams only
                 nb = alias.encode(enc)
             except Exception:
                 continue
