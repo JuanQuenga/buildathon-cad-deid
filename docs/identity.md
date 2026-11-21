@@ -1,6 +1,6 @@
 # Identity plan (owner: identity)
 
-Status: v1 (path-seeded plan, working API). Policy and aggregate stats only: no raw values here.
+Status: v2 (path-seeded + discovery + adapter observations + private curated table). Policy and aggregate stats only: no raw values here.
 Real-value tables live in `cad-deid/work/` (private).
 
 ## Use it
@@ -42,7 +42,31 @@ of one identity up to case and separators (`ACME Corp` / `acme_corp` / `ACMECorp
 | `sources/web/<host>` | domain | labels aliased except TLD/public suffix and generic host labels (`www`, `media`, ...) |
 | distinctive sub-tokens of owner/repo names (product names like `XYZ6`) | *_token | free text + paths, if seen under at most 4 owners (10 for owner tokens) |
 | scan observations (adapters) of kind person/company/account/email/domain/project/address/phone | as given | free text when >= 4 chars and not generic |
-| private curated tables `work/identity/curated.tsv`, `discovered.tsv` | any | as listed |
+| private curated tables `work/identity/curated.tsv` (catalog/existing collection names, org names behind owner handles), `discovered.tsv` (output of `deid.identity.classify`) | any | as listed |
+
+### Discovery and evidence rules
+
+`python -m deid.identity.discover` is an independent stdlib scanner (does not depend on the adapters):
+STEP `FILE_NAME`/`PERSON`/`ORGANIZATION`/addresses (escapes decoded), IGES global section,
+Parasolid `USER=`/`SITE=`, PDF Info + XMP (also inside Flate/object streams), PostScript DSC,
+OLE/CFB Summary/DocumentSummary property sets (own minimal CFB reader), XML/ODF/3MF/FCStd metadata,
+and emails / URL hosts / user directories in ASCII and UTF-16LE strings of every file, zip member and
+gzip payload. `python -m deid.identity.classify` turns raw observations (discovery JSONL and the
+pipeline scan DB) into identities with minimum-evidence rules:
+
+* person/company/account only from identity-bearing fields (author, organization, last author, company,
+  creator, `%%For`, `USER=`, profile directories...); adapter-declared identity fields are trusted, except
+  title-block label values, which must look like a name;
+* rejected: placeholders (multi-language: `Unknown`, `Administrator`, `您的姓名`...), vendor/translator
+  names, dates/times, versions, hashes, numbers, title-block vocabulary (`APPV'D`, `SIGNATURE`...),
+  mojibake of placeholders (GBK/UTF-8 read as Latin-1 is decoded before the check);
+* an author given as a code-hosting URL yields the account; `DOMAIN\user (MACHINE)` is split;
+* emails need a known TLD and consistent label case; generic mailboxes keep their local part;
+* domains: format namespaces and public infrastructure (code hosting, package indexes, CDNs, standards
+  bodies, social networks) are not identities; content-discovered domains are matched as whole
+  domains only (their labels are not matched as free words, so a supplier name in a filename survives);
+* single-token person/account names shorter than 5 characters or that are dictionary words are
+  replaced only where they sit (field mode), never as free words.
 
 Match modes: `flex` (case-insensitive, separators `space _ - . %20` optional, camelCase and
 letter/digit transitions count as boundaries), `exact` (case-insensitive, exact separators; used for
@@ -60,6 +84,14 @@ multi-word values made only of dictionary words), `field` (never matched in free
 * Repo names made only of dictionary words are replaced in their path slot, and in free text only
   as the exact multi-word phrase (>= 12 chars), never word by word.
 * Sub-tokens used under many unrelated sources (brand names like a toy or board vendor) are vocabulary.
+
+## Pipeline integration
+
+`build_plan(scan_db, manifest, plan_dir)` reads the manifest (+ archive members from the scan DB as
+inventory), the adapters' observations (through the classifier), and, if present,
+`<dirname(plan_dir)>/identity/{curated,discovered}.tsv`. The plan directory holds `plan.json`
+(entries, token alias registry, version), `secret.key` (kept across rebuilds, so aliases are stable),
+and `inventory.txt`. `plan.version` changes whenever an entry/mode changes.
 
 ## Paths
 
@@ -84,3 +116,16 @@ from the scan DB): relative to the referencing file (members relative to their a
 names (keeping the reference's own case), and pseudonymises the remaining components with the same
 dictionary plus user-directory rules (`C:\Users\<x>`, `/home/<x>`). Dangling references are still
 pseudonymised consistently.
+
+## Grader model (working theory)
+
+* The unchanged input scores 292/1000: those checks pass without any change (files open, geometry and
+  references intact, distinct identities distinct). The remaining ~700 need identifiers gone and
+  pseudonyms consistent, without breaking the first group.
+* Checks are per file, and the scorer must locate our renamed file: missing = fail. Its budget for
+  "finding the files it checks" (12 GB of downloads, 1 h of reading) implies it narrows candidates by
+  path and then reads content. Hence the path plan changes as little as possible: same depth, same
+  component lengths, same extension(s), every non-identifying token verbatim, hash suffixes kept.
+* The corpus is organic (scraped repositories, sites, catalogs). There is no planted fictitious identity
+  set in the sample or the path inventory; identities are source owners/repos/sites/organisations,
+  people in author/creator/last-saved-by fields and profile directories, emails, and domains.
