@@ -83,6 +83,10 @@ multi-word values made only of dictionary words), `field` (never matched in free
 * Format namespaces and standards URLs (w3.org, ns.adobe.com, purl.org, iec.ch, ...).
 * Repo names made only of dictionary words are replaced in their path slot, and in free text only
   as the exact multi-word phrase (>= 12 chars), never word by word.
+* File stems of Creo (`.prt/.asm/.drw/...(.N)`) and CATIA V5 models that sit in a directory with a
+  Creo assembly/drawing or CATIA product/drawing are kept: their links are by model name inside
+  compressed, checksummed sections no adapter can rewrite. On the manifest this keeps about 380 stems that
+  contain an identity token; the parent directories are still renamed.
 * Sub-tokens used under many unrelated sources (brand names like a toy or board vendor) are vocabulary.
 
 ## Pipeline integration
