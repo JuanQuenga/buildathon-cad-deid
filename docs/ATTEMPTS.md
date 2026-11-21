@@ -90,3 +90,19 @@ copy of unchanged objects plus upload.py for the rest (minutes for small diffs).
 |---|---|---|---|
 | 1 | 567 | see table above | coverage of PDF title-block identities is the lever |
 | 3 | 523 | PDF removal 199→173, cross-PDF consistency 95→79, triplets 23→17, correspondence 156→164, leakage 6→4, consistency 4→3, references 11→10; OLE unchanged | the precision rules cost ~48 points: the grader counts vendor/supplier companies, organisation domains and boilerplate/label cells it finds in PDFs as identifiers. Reverted in attempt 4 |
+| 4 | 479 | PDF removal 180, consistency 56, triplets 11, correspondence 138, engineering 8; OLE saved-account 4 | regression: replan lost a1 identities (old scanner quirks) and drawing numbers/stems changed; the part numbers replaced in ~18% more PDFs bought no removal checks |
+| 6 | 567 | identical to attempt 1 in every category | 483 PDFs with fixed pseudonym-run merging: the local "merged spans" metric is not graded |
+| 7 | 567 | identical to attempt 1 in every category | 121 PDFs with title-block initials ("CFK/DWS"): not graded, or in no check |
+
+### Reading the grader (attempts 1, 3, 4, 6, 7)
+
+- The grader is deterministic: unchanged outputs give identical category counts.
+- PDF removal / consistency / triplets move together (p, ~p², ~p³): a check fails when any graded string of its PDF survives.
+- Differential on a 2,500-PDF sample: the (pdf, identity) pairs attempt 1 removed and attempt 3 kept are mostly
+  title-block **label words** that attempt 1's plan had taken for names (Benennung, Maßstab, Fecha, Plano,
+  "All rights") plus component vendors; attempt 4 lost "Aprovado" and real names. Both regressions match
+  ≈ 300 × (share of PDFs that lost a pair). So the graded strings look like what a naive title-block
+  extractor lists: neighbours of labels (labels included), boilerplate owners, vendors.
+- Probes queued (each PDF-only on attempt 6, plan frozen): E2 stem/part codes (attempt 8), E5 naive
+  title-block cells + boilerplate/vendors (attempt 9), E3 repo owner/project names in PDF text
+  (attempt 10), E4 names missing from the plan (attempt 11).
