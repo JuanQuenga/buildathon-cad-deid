@@ -13,6 +13,9 @@ flock -n 9 || { echo "another run_attempt.sh holds $WORK"; exit 1; }
 log() { echo "$(date '+%F %T') $*" | tee -a "$WORK/run_attempt.log"; }
 cd "$REPO"
 A=(--input "$IN" --manifest "$MAN" --work "$WORK" --jobs "$JOBS")
+export DEID_OCR_CACHE="${DEID_OCR_CACHE:-$WORK/ocr-cache}"            # OCR each image once (scan+rewrite)
+export DEID_CONSTRAINTS_DIR="${DEID_CONSTRAINTS_DIR:-$WORK/constraints}" # references that could not be rewritten
+mkdir -p "$DEID_OCR_CACHE" "$DEID_CONSTRAINTS_DIR"
 
 if [ "${WAIT_FOR_DOWNLOAD:-0}" = 1 ]; then
   while true; do

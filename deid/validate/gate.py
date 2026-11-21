@@ -85,6 +85,33 @@ def build_patterns(plan):
     return pats, values, skipped
 
 
+_B64 = set("abcdefghijklmnopqrstuvwxyz0123456789+/=")      # on lower-cased text
+_A85 = set(chr(c) for c in range(33, 118))
+
+
+def _run_len(s, start, end, alphabet, limit=200):
+    i = start
+    while i > 0 and start - i < limit and s[i - 1] in alphabet:
+        i -= 1
+    j = end + 1
+    while j < len(s) and j - end < limit and s[j] in alphabet:
+        j += 1
+    return j - i
+
+
+def _benign_context(s, start, end):
+    """Hits that are not identifiers in use: inside base64 / ASCII85 blobs, or XML namespace URIs."""
+    if _run_len(s, start, end, _B64) >= 120:
+        return True
+    pre = s[max(0, start - 100):start]
+    if "<~" in pre and "~>" not in pre and _run_len(s, start, end, _A85) >= 60:
+        return True
+    tail = pre[-80:]
+    if "xmlns" in tail and tail.split("xmlns")[-1].count('"') + tail.split("xmlns")[-1].count("'") <= 1:
+        return True  # inside an XML namespace declaration (prefix or URI)
+    return False
+
+
 class LeakScanner:
     def __init__(self, pats):
         import ahocorasick
@@ -118,6 +145,8 @@ class LeakScanner:
                     before, after = start - step, end + 1
                 if (before >= 0 and s[before] in _ALNUM) or (after < n and s[after] in _ALNUM):
                     continue
+            if _benign_context(s, end - ln + 1, end):
+                continue
             hits.add(meta[0])
         return hits
 
