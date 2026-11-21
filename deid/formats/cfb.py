@@ -67,7 +67,7 @@ CAD_REF = re.compile(r"\.(ipt|iam|idw|ipn|ipj|dwg|par|psm|asm|dft|pwd|sldprt|sld
                      r"catpart|catproduct|step|stp|igs|iges|x_t|x_b|sat|jt|xls|xlsx|pdf)(?::\d+)?\b", re.I)
 _U16RUN = re.compile(rb"(?:[\x20-\x7e\xa0-\xff]\x00){4,}")
 _ASCRUN = re.compile(rb"[\x20-\x7e]{5,}")
-_SKIP_STREAM = re.compile(r"(__ZLB$|Preview|Thumbnail|^Images/|Bitmap|PNG$|\x01Ole10Native$|\x01CompObj$|"
+_SKIP_STREAM = re.compile(r"(__ZLB$|Preview|Thumbnail|^Images/|Bitmap|PNG$|\x01CompObj$|"
                           r"DisplayLists|Display/Cache|ParasolidPartition|Partition$|Protein$|"
                           r"PSMspacemap)", re.I)
 
@@ -348,7 +348,7 @@ class CfbAdapter(Adapter):
                     if u:
                         _edit_text_runs(ctx, u, None, {}, True, obs, refs, field + "(zlb)")
                     continue
-                if _SKIP_STREAM.search(name) and not name.endswith("Ole10Native"):
+                if _SKIP_STREAM.search(name):
                     continue
                 if len(data) > 64 << 20:
                     continue
