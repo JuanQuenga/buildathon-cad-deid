@@ -1784,10 +1784,32 @@ def _e16_foreign_tokens(t: str) -> list:
     return out
 
 
+_E16_TB_LABELS = re.compile(r"(?i)\b(benennung|ma(?:ß|ss)stab|werkstoff|blatt|zeichnungs?-?nr|gezeichnet|gepr[üu]ft|"
+                            r"escala|hoja|fecha|dibujado|plano|pl[àa]nol|dibuixat|aprovat|aprovado|revisat|[ée]chelle|"
+                            r"dessin[ée]|scala|disegnato|foglio|tekening|getekend|schaal|rysował|skala|arkusz|měřítko|"
+                            r"drawn|checked|approved|scale|sheet|title|material|dwg|date|rev)\b|比例|重量|设计|审核|批准|材料|图号|日期|校核|工艺")
+
+
+def _e16_tb_page(W, H, lines) -> bool:
+    """A drawing sheet: at least two title-block label cells in the bottom-right region."""
+    if not W or not H:
+        return False
+    n = 0
+    for x0, y0, x1, y1, t in lines:
+        if x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 40 and _E16_TB_LABELS.search(t):
+            n += 1
+            if n >= 2:
+                return True
+    return False
+
+
 def e5_from_pages(pages, plan):
     """The E5/E5+ rules on positioned lines [(W, H, [(x0, y0, x1, y1, text)])] (text layer or OCR)."""
     cands = []
-    for W, H, lines in pages:
+    # E16 applies only to drawings: most of the PDF's pages are title-block sheets (not prose documents)
+    tbp = [_e16_tb_page(W, H, lines) for W, H, lines in pages]
+    e16_on = os.environ.get("DEID_PDF_E16", "1") == "1" and bool(pages) and sum(tbp) * 2 >= len(pages)
+    for pno, (W, H, lines) in enumerate(pages):
         for i, (x0, y0, x1, y1, t) in enumerate(lines):
             t = " ".join(t.split())
             if not t:
@@ -1799,9 +1821,9 @@ def e5_from_pages(pages, plan):
                 cands.append(m.group(1))
             if os.environ.get("DEID_PDF_E14", "1") == "1":
                 cands.extend(e14_candidates(t))
+            if e16_on and tbp[pno] and x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 80:
+                cands.extend(("\x00tok", tok) for tok in _e16_foreign_tokens(t))
             if os.environ.get("DEID_PDF_E16", "1") == "1":
-                if W and H and x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 80:
-                    cands.extend(("\x00tok", tok) for tok in _e16_foreign_tokens(t))
                 if _E16_OWNER_END.search(t):
                     lh0 = max(y1 - y0, 1.0)
                     nxt = sorted((b0 - y1, tt) for (a0, b0, a1, b1, tt) in lines
