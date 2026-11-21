@@ -43,6 +43,14 @@ Notes
 * Duplicate content (35k manifest MD5 groups) is scanned once; path-independent adapters rewrite
   identical content once and reflink the result.
 
+## Partial-corpus trials (2026-11-20 ~20:30 ET)
+
+* Plan build (`deid.identity.build_plan`) on a scan DB of 62k files / 978k observations / 134k
+  references: 16 s.
+* Rewrite of 1,500 small `sources/github/` files with 2 jobs: 100 s wall (16 f/s, ~8 f/s/job):
+  rewritten 1,310, verified_unchanged 180, copied_unsupported 10, no fallbacks.
+* Full scan, big-file phase (largest first, 6 jobs): 70-200 MB/s depending on machine load.
+
 ## Full corpus
 
 (to be filled after the first full run)
