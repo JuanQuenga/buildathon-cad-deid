@@ -32,6 +32,8 @@ from deid.pipeline.pool import Pool
 HARD_SIZE = 2_000_000_000         # "2 GB": use the decimal reading to be safe
 MAX_OBJECTS = 400_000
 MIN_PATTERN = 4
+BOUNDARY_BELOW = 8                # identifiers shorter than this must stand alone (not inside a word)
+_ALNUM = set("abcdefghijklmnopqrstuvwxyz0123456789")
 SCAN_CAP = 512 << 20              # bytes per view in leak scan
 VIEW_DEPTH = 3
 
@@ -104,7 +106,18 @@ class LeakScanner:
 
     def _scan_str(self, s):
         hits = set()
+        n = len(s)
         for end, (ln, meta) in self.A.iter(s):
+            enc = meta[1]
+            step = 1 if enc == "utf-8" else 2
+            if ln // step < BOUNDARY_BELOW:
+                start = end - ln + 1
+                if enc == "utf-16-be":
+                    before, after = start - 1, end + 2
+                else:
+                    before, after = start - step, end + 1
+                if (before >= 0 and s[before] in _ALNUM) or (after < n and s[after] in _ALNUM):
+                    continue
             hits.add(meta[0])
         return hits
 
