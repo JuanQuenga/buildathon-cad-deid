@@ -43,8 +43,7 @@ def results_db(work: str) -> sqlite3.Connection:
 
 
 def delete_scan_rows(con, path: str):
-    """Remove a file and all of its members' rows."""
-    like = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "!/%"
-    for t in ("observations", "refs"):
-        con.execute(f"DELETE FROM {t} WHERE path=? OR path LIKE ? ESCAPE '\\'", (path, like))
-    con.execute("DELETE FROM files WHERE path=? OR path LIKE ? ESCAPE '\\'", (path, like))
+    """Remove a file and all of its members' rows (index range scans, no LIKE)."""
+    lo, hi = path + "!/", path + "!0"   # '0' sorts right after '/'
+    for t in ("observations", "refs", "files"):
+        con.execute(f"DELETE FROM {t} WHERE path=? OR (path>=? AND path<?)", (path, lo, hi))
