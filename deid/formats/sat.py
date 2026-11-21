@@ -21,7 +21,7 @@ from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult
                       REWRITTEN, VERIFIED_UNCHANGED)
 from deid.formats._neutral import PlanCache, ObsCollector, looks_like_reference, ref_kind
 
-_AT = re.compile(rb"(?<![^ \t\r\n])@(\d{1,9}) ")
+_AT = re.compile(rb"@(\d{1,9}) ")
 _HDR1 = re.compile(rb"\s*(\d+) +(-?\d+) +(-?\d+) +(-?\d+)")
 _INT = re.compile(rb"(\d{1,6}) ")
 _OLDTOK = re.compile(rb"(\$?-?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?|#|\S+)")
@@ -124,6 +124,9 @@ class _Sat:
                 m = search(buf, pos)
                 if m is None:
                     return
+                if m.start() > 0 and buf[m.start() - 1] not in (32, 9, 10, 13):
+                    pos = m.start() + 1   # '@' inside a token: not a string prefix
+                    continue
                 j = buf.rfind(b"#", pos, m.start())
                 if j >= 0:
                     rec = j + 1
@@ -222,7 +225,7 @@ def _is_sat(head: bytes) -> bool:
 
 class SatAdapter(Adapter):
     name = "sat"
-    version = "1"
+    version = "2"
     priority = 9
     magics = ()
     extensions = (".sat", ".sab", ".asat")
