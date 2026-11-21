@@ -52,13 +52,13 @@ Measured on the downloaded native samples (about 1,480 files: ≥ 50 per major f
 
 | Adapter | Sample: rewritten / verify ok | Input slice: rewritten / verify ok | Rewrite time, p50 |
 |---|---|---|---|
-| pdf | 101 / 101 (auto plan), 79 / 79 (dev plan) | 100 / 100 | 0.06 s per file (median 1 page); verify ~0.15 s |
-| solidworks | 197 / 197 (auto), 164 / 164 (dev); 0 references left unrewritten with the dev plan | 405 / 405 | 0.02–0.05 s |
-| cfb | 287 / 287 | 547 / 549 (2 NX `.prt`: verify caught a size change → fallback copy) | 0.02 s |
-| zippkg | 114 / 114 | 134 / 134 (3 large 3MF hit the old 120 s budget; fixed: 75 s → 4 s) | 0.07 s |
-| image | 23 / 23 (40 OCR regions) | 20 / 20 | 1.0 s with OCR; mean 1.35 s per image |
-| creo | 15 / 15 | 44 / 44 | < 0.01 s |
-| dwg | 57 / 57 (112 SummaryInfo fields); LibreDWG `dwgread` agrees on 57 / 57 | n/a in slice | < 0.01 s |
+| pdf | 101 / 101 (auto plan), 79 / 79 (dev plan) | 100 / 100 and 118 / 118 (second slice); 115 / 115 on another 150 random input PDFs | 21.6 pages/s per core for rewrite + verify (1,137 pages in 52.7 s, auto OCR on) |
+| solidworks | 197 / 197 (auto), 164 / 164 (dev); 0 references left unrewritten with the dev plan | 405 / 405 and 465 / 465 | 0.02–0.05 s (drawings with preview OCR ~0.7 s) |
+| cfb | 287 / 287 | 547 / 549 and 758 / 760 (the same NX `.prt` pattern: a truncated last sector grew on write; verify caught it; fixed by truncating back and re-reading the streams) | 0.02 s |
+| zippkg | 114 / 114 | 134 / 134 (3 large 3MF hit the old 120 s budget; fixed: 75 s → 4 s) and 167 / 167 with no timeouts | 0.07 s |
+| image | 23 / 23 (40 OCR regions) | 20 / 20 and 46 / 46 | 1.0 s with OCR; mean 1.35 s per image |
+| creo | 15 / 15 | 44 / 44 and 56 / 56 | < 0.01 s |
+| dwg | 57 / 57 (112 SummaryInfo fields); LibreDWG `dwgread` agrees on 57 / 57 | all 729 input DWGs: 421 rewritten, 421 / 421 verify; 148 nothing to change; 154 unsupported version (R2000/R2007), 5 multi-page SummaryInfo, 1 undecodable page: copied | ~2 ms |
 | ipj | synthetic test only (samples held no plan match) | 0 / 0 | – |
 | opaque | scan only (U3D synthetic test) | – | – |
 
