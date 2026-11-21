@@ -81,17 +81,27 @@ class Matcher:
             node[_END] = True
             n += 1
         self.n = n
-        self.rx = None
+        self.rx = None       # case-sensitive, run on text.lower() (fast path)
+        self._rx_ci = None   # IGNORECASE fallback when lower() changes length
+        self._pat = None
         if n:
-            pat = _trie_to_regex(self.trie)
-            self.rx = re.compile(r"(?<![^\W_])(?:" + pat + ")", re.IGNORECASE)
+            self._pat = r"(?<![^\W_])(?:" + _trie_to_regex(self.trie) + ")"
+            self.rx = re.compile(self._pat)
 
-    def finditer(self, text):
+    def finditer(self, text, lw=None):
         """Yield (start, end) of accepted matches (non-overlapping, leftmost-longest by trie)."""
         if self.rx is None:
             return
         n = len(text)
-        for m in self.rx.finditer(text):
+        if lw is None:
+            lw = text.lower()
+        if len(lw) == n:
+            it = self.rx.finditer(lw)
+        else:
+            if self._rx_ci is None:
+                self._rx_ci = re.compile(self._pat, re.IGNORECASE)
+            it = self._rx_ci.finditer(text)
+        for m in it:
             s, e = m.span()
             if e == s:
                 continue

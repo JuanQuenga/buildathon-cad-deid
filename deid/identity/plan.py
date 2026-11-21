@@ -50,8 +50,9 @@ EMAIL_RE = re.compile(
     + _TLDS.upper() + r"))(?![\w-])")
 # user directory in Windows / Unix paths: group(1)=prefix incl separator, group(2)=user
 USERDIR_RE = re.compile(
-    r"(?i)((?:\b[A-Z]:|\\\\[^\\/\s]+\\[^\\/\s]+|^|(?<=[\s\"'(=]))?[\\/]{1,2}(?:Users|Documents and Settings|home|export/home)[\\/]{1,2})"
+    r"(?i)[\\/]{1,2}(?:users|documents and settings|home|export/home)[\\/]{1,2}"
     r"([^\\/\x00-\x1f\"'<>|:*?]{1,64}?)(?=[\\/])")
+_USERDIR_HINT = re.compile(r"(?:users|documents and settings|home)[\\/]")  # run on lower()
 SHA_PIECE_RE = re.compile(r"^[0-9a-f]{12}$")
 VERSION_SUFFIX_RE = re.compile(r"\.\d+$")
 
@@ -268,7 +269,8 @@ class IdentityPlan:
             return text
         out = []
         last = 0
-        for s, e in self.matcher.finditer(text):
+        lw = text.lower()
+        for s, e in self.matcher.finditer(text, lw):
             span = text[s:e]
             ent = self._lookup_span(span)
             if ent is None:
@@ -281,7 +283,7 @@ class IdentityPlan:
             text = "".join(out)
         if "@" in text:
             text = EMAIL_RE.sub(self._email_sub, text)
-        if "sers" in text or "home" in text or "SERS" in text or "Home" in text or "HOME" in text:
+        if _USERDIR_HINT.search(lw):
             text = USERDIR_RE.sub(self._userdir_sub, text)
         return text
 
@@ -349,13 +351,13 @@ class IdentityPlan:
         return la + "@" + self._render_domain(dom)
 
     def _userdir_sub(self, m):
-        user = m.group(2)
+        user = m.group(1)
         key = norm_key(user)
         if not key or key in PLACEHOLDERS:
             return m.group(0)
         ent = self.entries.get("".join(key.split()))
         ua = self._render_entry(ent, user) if ent else self._render_tokens(user)
-        return m.group(1) + ua
+        return m.group(0)[: m.start(1) - m.start(0)] + ua
 
     def _domain_protected(self, dom: str) -> bool:
         d = dom.lower().rstrip(".")
