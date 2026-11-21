@@ -65,7 +65,7 @@ def _dec(b):
 
 class UnvAdapter(Adapter):
     name = "unv"
-    version = "1"
+    version = "2"
     priority = 8
     magics = ()
     extensions = (".unv", ".uff")
@@ -73,7 +73,7 @@ class UnvAdapter(Adapter):
     timeout_s = 900.0
 
     def matches(self, ctx, head):
-        if ctx.magic not in ("text", "unknown"):
+        if ctx.magic not in ("text", "unknown") and not (ctx.magic == "binary" and ctx.ext in self.extensions):
             return False
         return bool(re.match(rb"\s*-1\s*\r?\n\s*\d+\s*\r?\n", head)) and (
             ctx.ext in self.extensions or b"    -1" in head[:20])
