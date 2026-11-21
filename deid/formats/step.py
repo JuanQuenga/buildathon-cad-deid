@@ -162,6 +162,26 @@ GEOMETRY = {
 }
 
 
+# Format-required vocabulary: never passed to the plan (schema names, AP context strings,
+# units, predefined colours, role/status enumerations, timestamps).
+PROTECTED_FIELDS = {("FILE_DESCRIPTION", "implementation_level"), ("FILE_NAME", "time_stamp"),
+                    ("FILE_SCHEMA", "schema_identifiers")}
+PROTECTED_ENTITIES = {
+    "FILE_SCHEMA", "APPLICATION_PROTOCOL_DEFINITION", "APPLICATION_CONTEXT", "CALENDAR_DATE", "LOCAL_TIME",
+    "DATE_AND_TIME", "COORDINATED_UNIVERSAL_TIME_OFFSET", "SI_UNIT", "CONVERSION_BASED_UNIT", "NAMED_UNIT",
+    "DIMENSIONAL_EXPONENTS", "DRAUGHTING_PRE_DEFINED_COLOUR", "DRAUGHTING_PRE_DEFINED_CURVE_FONT",
+    "PRE_DEFINED_MARKER", "PRE_DEFINED_SYMBOL", "PRE_DEFINED_TEXT_FONT", "PRODUCT_CONTEXT",
+    "MECHANICAL_CONTEXT", "PRODUCT_DEFINITION_CONTEXT", "DESIGN_CONTEXT", "PRODUCT_CATEGORY", "PRODUCT_TYPE",
+    "SECURITY_CLASSIFICATION_LEVEL", "APPROVAL_STATUS", "DATE_TIME_ROLE", "DATE_ROLE", "APPROVAL_ROLE",
+    "PERSON_AND_ORGANIZATION_ROLE", "OBJECT_ROLE", "DOCUMENT_TYPE", "TYPE_QUALIFIER", "PRECISION_QUALIFIER",
+    "UNCERTAINTY_MEASURE_WITH_UNIT", "LENGTH_UNIT", "PLANE_ANGLE_UNIT", "SOLID_ANGLE_UNIT", "MASS_UNIT",
+    "AREA_UNIT", "VOLUME_UNIT", "TIME_UNIT", "THERMODYNAMIC_TEMPERATURE_UNIT", "RATIO_UNIT",
+    "GLOBAL_UNIT_ASSIGNED_CONTEXT", "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT", "GEOMETRIC_REPRESENTATION_CONTEXT",
+    "REPRESENTATION_CONTEXT", "PARAMETRIC_REPRESENTATION_CONTEXT", "CAMERA_MODEL_D3",
+    "SURFACE_SIDE_STYLE", "SURFACE_STYLE_FILL_AREA", "SURFACE_STYLE_USAGE", "CURVE_STYLE_FONT",
+}
+
+
 def _field_name(ent: Optional[str], idx: int) -> str:
     names = FIELDS.get(ent or "")
     if names and idx < len(names):
@@ -323,6 +343,8 @@ def describe(prefix: Optional[bytes]) -> tuple[str, str, Optional[str]]:
             break
     e = ent or "?"
     f = _field_name(ent, idx)
+    if e in PROTECTED_ENTITIES or (e, f) in PROTECTED_FIELDS:
+        return e, f, "protected"
     kind = KIND_BY_FIELD.get((e, f))
     if kind is None and idx == 0 and e in NAMED_REPR and not nested:
         kind = "part_name"
@@ -406,7 +428,7 @@ def _is_ascii_file(path: str) -> bool:
 
 class StepAdapter(Adapter):
     name = "step"
-    version = "2"
+    version = "3"
     priority = 10
     magics = ("step",)
     extensions = (".step", ".stp", ".p21")
@@ -443,7 +465,7 @@ class StepAdapter(Adapter):
                 if not val.strip():
                     continue
                 ent, fld, kind_ = describe(buf[rec:s] if rec >= 0 else None)
-                if ent in GEOMETRY and kind_ is None:
+                if kind_ == "protected" or (ent in GEOMETRY and kind_ is None):
                     continue
                 field = f"step.{ent}.{fld}"
                 if looks_like_reference(val):
@@ -479,6 +501,9 @@ class StepAdapter(Adapter):
                         new = self._sub_comment(tok, pc)
                     else:
                         ent, fld, kind_ = describe(buf[rec:s] if rec >= 0 else None)
+                        if kind_ == "protected":
+                            w(tok)
+                            continue
                         key = (tok, kind_)
                         new = cache.get(key)
                         if new is None:

@@ -65,3 +65,13 @@ def test_step_unchanged(tmp_path):
     from conftest import StubPlan
     sr, rr, vr, out = run_adapter(tmp_path, "step", "c.step", STEP, StubPlan({"Zzz": "Yyy"}))
     assert rr.status == "verified_unchanged"
+
+
+def test_step_protected_vocabulary(tmp_path):
+    from conftest import StubPlan
+    p = StubPlan({"AUTOMOTIVE_DESIGN": "XX", "mechanical": "YY", "core data": "ZZ", "Jane Roe": "Person Alpha"})
+    sr, rr, vr, out = run_adapter(tmp_path, "step", "d.step", STEP, p)
+    assert b"AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }" in out
+    assert b"'mechanical'" in out and b"core data for automotive" in out
+    assert b"Person Alpha" in out
+    assert not any("AUTOMOTIVE_DESIGN" in o.value for o in sr.observations)
