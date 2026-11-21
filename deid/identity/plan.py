@@ -177,8 +177,31 @@ class IdentityPlan:
         self._opaque_dirs = None
         self._matcher = None
         self._map_cache = {}
+        # alias scope: "token" (default; a token has one pseudonym everywhere, so variants of a name
+        # share their surname alias) or "entry" (every identity gets its own pseudonym tokens, so two
+        # identities never share a pseudonym token)
+        self.alias_scope = self.meta.get("alias_scope", "token")
+        self._ealias = {}
+        if self.alias_scope == "entry":
+            used = set(self._real_tokens)
+            for k in sorted(self.entries):
+                e = self.entries[k]
+                for attempt in range(64):
+                    parts = []
+                    for t in e.tokens:
+                        if (t in e.keep or len(t) <= 1 or t in HOST_KEEP_TOKENS
+                                or (t in ORG_DESIGNATORS and len(e.tokens) > 1)):
+                            parts.append(t)
+                        else:
+                            parts.append(alias_token(t, secret + b"|entry|" + k.encode("utf-8"), attempt).lower())
+                    al = "".join(parts)
+                    if al != k and al not in used:
+                        break
+                self._ealias[k] = al
+                used.add(al)
+                self._alias_set.update(pt for pt, t in zip(parts, e.tokens) if pt != t)
         self.version = self.meta.get("version") or _hash(
-            "plan", PLAN_FORMAT, hashlib.sha256(secret).hexdigest(),
+            "plan", PLAN_FORMAT, hashlib.sha256(secret).hexdigest(), "scope=" + self.alias_scope,
             *sorted(f"{k}|{e.mode}|{','.join(e.keep)}" for k, e in self.entries.items()))
 
     # ------------------------------------------------------------------ tokens
@@ -234,15 +257,18 @@ class IdentityPlan:
     def _render_entry(self, entry: Entry, span: str) -> str:
         """Render matched text (which spells entry with arbitrary case and
         separators, possibly with tokens glued together)."""
-        alias_chars = []
-        for t in entry.tokens:
-            if (t in entry.keep or len(t) <= 1 or t in HOST_KEEP_TOKENS
-                    or (t in ORG_DESIGNATORS and len(entry.tokens) > 1)):
-                alias_chars.append(t)
-            else:
-                alias_chars.append(self._token_alias(t))
         ref = "".join(entry.tokens)
-        al = "".join(alias_chars)
+        if self.alias_scope == "entry" and entry.compact in self._ealias:
+            al = self._ealias[entry.compact]
+        else:
+            alias_chars = []
+            for t in entry.tokens:
+                if (t in entry.keep or len(t) <= 1 or t in HOST_KEEP_TOKENS
+                        or (t in ORG_DESIGNATORS and len(entry.tokens) > 1)):
+                    alias_chars.append(t)
+                else:
+                    alias_chars.append(self._token_alias(t))
+            al = "".join(alias_chars)
         if len(ref) != len(al):
             return self._render_tokens(span, entry.keep)
         out = []

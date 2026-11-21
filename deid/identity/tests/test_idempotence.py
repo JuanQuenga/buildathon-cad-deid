@@ -80,3 +80,19 @@ class FieldGuard(unittest.TestCase):
         self.assertIsNotNone(p.alias("Zorbeline", "person"))
         self.assertIsNone(p.alias("Zorbeline", "part_number"))
         self.assertIsNone(p.alias("design", "part_number"))
+
+
+class EntryScope(unittest.TestCase):
+    def test_entry_scope_no_shared_tokens(self):
+        ents = [Entry("Zorblax Quentaro", "person", FLEX), Entry("Zorblax Wimmeridge", "person", FLEX)]
+        tok = IdentityPlan(ents, KEY)
+        ent = IdentityPlan(ents, KEY, meta={"alias_scope": "entry"})
+        a, b = tok.replace_text("Zorblax Quentaro"), tok.replace_text("Zorblax Wimmeridge")
+        self.assertEqual(a.split()[0], b.split()[0])          # token scope shares the first-name alias
+        a, b = ent.replace_text("Zorblax Quentaro"), ent.replace_text("Zorblax Wimmeridge")
+        self.assertNotEqual(a.split()[0], b.split()[0])       # entry scope does not
+        self.assertEqual(ent.replace_text("ZORBLAX QUENTARO").lower(), a.lower())   # case variants agree
+        for t in ("Zorblax Quentaro", r"C:\Users\Zorblax Quentaro\x"):
+            r1 = ent.replace_text(t)
+            self.assertEqual(ent.replace_text(r1), r1)
+        self.assertNotEqual(tok.version, ent.version)
