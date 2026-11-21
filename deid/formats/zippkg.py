@@ -511,6 +511,9 @@ class ZipPackageAdapter(Adapter):
         t, enc = _decode_text(data)
         if t is None:
             return None
+        # fast path: nothing in this member is known to the plan
+        if plan.replace_text(nu.xml_unescape(t)) == nu.xml_unescape(t):
+            return None
         keep = set(nu._XML_ATTR_KEEP)
         if kind == "3mf":
             keep.discard("name")

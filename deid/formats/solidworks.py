@@ -346,6 +346,8 @@ class SolidWorksAdapter(Adapter):
             t = _decode_xml(u, enc)
         except UnicodeDecodeError:
             return None
+        if plan.replace_text(nu.xml_unescape(t)) == nu.xml_unescape(t):
+            return None
 
         def vf(v, where):
             if nu.looks_like_ref(v):
