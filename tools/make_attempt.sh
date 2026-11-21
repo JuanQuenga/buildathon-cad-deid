@@ -90,7 +90,8 @@ if [ ! -f "$W/plan/plan.json" ]; then log "plan"; $PY -m deid.pipeline plan $A >
 T1=$(date +%s)
 log "rewrite"; $PY -m deid.pipeline rewrite $A --out "$W/stage" >> "$W/rewrite.log" 2>&1
 T2=$(date +%s)
-log "validate"; $PY -m deid.pipeline validate $A --out "$W/stage" --leak-scan full --prev-work "$PW" >> "$W/validate.log" 2>&1 || log "validate reported hard failures"
+# the validator always comes from the main repo (frozen attempt code may predate its options)
+log "validate"; (cd "$REPO" && $PY -m deid.pipeline validate $A --out "$W/stage" --leak-scan full --prev-work "$PW") >> "$W/validate.log" 2>&1 || log "validate reported hard failures"
 T3=$(date +%s)
 log "package"; $PY -m deid.pipeline package $A --stage "$W/stage" --out "$OUT" >> "$W/package.log" 2>&1
 log "md5 manifest"; $PY tools/md5_manifest.py --attempt "$OUT" --work "$W" --manifest "$MAN" --jobs "$JOBS" >> "$W/md5.log" 2>&1
