@@ -312,39 +312,51 @@ def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
 # ---------------------------------------------------------------------------
 # PDF raster images (optional stage, DEID_PDF_OCR=1)
 # ---------------------------------------------------------------------------
-def pdf_images(pdf, plan, ctx) -> int:
-    """OCR every reasonably sized image XObject; replace pixels where the plan
-    matches.  Returns the number of regions replaced."""
+def pdf_images(pdf, plan, ctx, mode: str = "auto", textless_pages=()) -> int:
+    """OCR image XObjects and replace pixels where the plan matches.
+
+    mode "all": every image of 40k px .. MAX_PIXELS.  mode "auto": only
+    logo / title-strip shaped images (aspect >= 2, <= 3 MP) and images on pages
+    without a text layer (scans); at most DEID_PDF_OCR_MAX images and
+    DEID_PDF_OCR_BUDGET seconds per document.  Returns regions replaced."""
     if TESSERACT is None:
         return 0
-    import pikepdf
+    import time
+    import zlib
     from pikepdf import PdfImage, Name
-    from PIL import Image
+    max_imgs = int(os.environ.get("DEID_PDF_OCR_MAX", "8"))
+    budget = float(os.environ.get("DEID_PDF_OCR_BUDGET", "30"))
+    t0 = time.monotonic()
     seen = set()
     total = 0
-    for page in pdf.pages:
+    done = 0
+    for pi, page in enumerate(pdf.pages):
         try:
             xo = page.resources.get("/XObject") or {}
         except Exception:
             continue
         for name, x in list(xo.items()):
+            if done >= max_imgs or time.monotonic() - t0 > budget:
+                return total
             try:
                 if x.get("/Subtype") != Name("/Image") or x.objgen in seen:
                     continue
                 seen.add(x.objgen)
                 w, h = int(x.get("/Width", 0)), int(x.get("/Height", 0))
-                if w * h < 40_000 or w * h > MAX_PIXELS or "/SMask" in x and False:
+                if w * h < 40_000 or w * h > MAX_PIXELS or x.get("/ImageMask"):
                     continue
-                pim = PdfImage(x)
-                img = pim.as_pil_image()
+                if mode == "auto":
+                    shaped = (w >= 2 * h or h >= 2 * w) and w * h <= 3_000_000
+                    if not shaped and pi not in textless_pages:
+                        continue
+                img = PdfImage(x).as_pil_image()
+                done += 1
                 new, n = redact_image(img, plan, ctx.tmp_dir if ctx is not None else "")
                 if not n or new is None:
                     continue
                 if new.mode not in ("RGB", "L"):
                     new = new.convert("RGB")
-                import zlib
-                raw = new.tobytes()
-                x.write(zlib.compress(raw), filter=Name("/FlateDecode"))
+                x.write(zlib.compress(new.tobytes()), filter=Name("/FlateDecode"))
                 x.ColorSpace = Name("/DeviceRGB") if new.mode == "RGB" else Name("/DeviceGray")
                 x.BitsPerComponent = 8
                 for k in ("/DecodeParms", "/Decode"):

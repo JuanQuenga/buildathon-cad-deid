@@ -200,6 +200,58 @@ def _stream_base(name: str) -> str:
     return re.sub(r"\d+", "N", name)
 
 
+def _ocr_on() -> bool:
+    return os.environ.get("DEID_IMAGE_OCR", "1") == "1"
+
+
+def _redact_preview(ctx, name, u, plan, counts) -> Optional[bytes]:
+    """OCR a drawing preview (PNG, or size-prefixed DIB) and paint pseudonyms
+    over identity text.  Returns the new stream payload or None."""
+    import io
+    from PIL import Image
+    from deid.formats import _ocr
+    if not _ocr.available():
+        return None
+    try:
+        if name == "PreviewPNG":
+            im = Image.open(io.BytesIO(u))
+            im.load()
+            new, n = _ocr.redact_image(im, plan, ctx.tmp_dir)
+            if not n:
+                return None
+            buf = io.BytesIO()
+            new.save(buf, "PNG", optimize=True)
+            counts["preview_ocr_regions"] = counts.get("preview_ocr_regions", 0) + n
+            return buf.getvalue()
+        # DIB: uint32 size, BITMAPINFOHEADER, pixels
+        if len(u) < 44 or struct.unpack_from("<I", u, 4)[0] != 40:
+            return None
+        dib = u[4:]
+        w, h, planes, bpp = struct.unpack_from("<iiHH", dib, 4)
+        if bpp != 24 or struct.unpack_from("<I", dib, 16)[0] != 0:
+            return None
+        bmp = b"BM" + struct.pack("<IHHI", 14 + len(dib), 0, 0, 14 + 40) + dib
+        im = Image.open(io.BytesIO(bmp))
+        im.load()
+        new, n = _ocr.redact_image(im, plan, ctx.tmp_dir)
+        if not n:
+            return None
+        buf = io.BytesIO()
+        new.convert("RGB").save(buf, "BMP")
+        nb = buf.getvalue()
+        pix_old = dib[40:]
+        pix_new = nb[struct.unpack_from("<I", nb, 10)[0]:]
+        if len(pix_new) < len(pix_old):
+            pix_new += pix_old[len(pix_new):]
+        out = u[:44] + pix_new[:len(pix_old)]
+        if len(out) != len(u):
+            return None
+        counts["preview_ocr_regions"] = counts.get("preview_ocr_regions", 0) + n
+        return out
+    except Exception:
+        return None
+
+
 class SolidWorksAdapter(Adapter):
     name = "solidworks"
     version = "1"
@@ -305,6 +357,19 @@ class SolidWorksAdapter(Adapter):
             if u is None or len(u) != c.usz:
                 continue
             if "Preview" in c.name.split("/")[-1]:
+                if c.name in ("PreviewPNG", "Preview") and ctx.ext in (".slddrw", ".drwdot") and _ocr_on():
+                    new = _redact_preview(ctx, c.name, u, plan, counts)
+                    if new is not None:
+                        comp = _deflate_fit(new, c.csz)
+                        if comp is None:
+                            counts["previews_unfit"] = counts.get("previews_unfit", 0) + 1
+                            continue
+                        out[c.data_off:c.data_off + c.csz] = comp
+                        struct.pack_into("<I", out, c.si + _OFF_USZ, len(new))
+                        for si in toc_by_name.get(c.name, []):
+                            if struct.unpack_from("<I", data, si + _OFF_CSZ)[0] == c.csz:
+                                struct.pack_into("<I", out, si + _OFF_USZ, len(new))
+                        counts["streams_rewritten"] += 1
                 continue
             enc = _xml_kind(u) if (c.name.endswith(".xml") or c.name.startswith(("docProps", "swXml"))
                                    or u[:5] == b"<?xml") else None
@@ -450,6 +515,16 @@ class SolidWorksAdapter(Adapter):
                 if not _xml_parses(ub):
                     return VerifyResult(ok=False, notes=["xml stream no longer parses"])
                 changed_xml += 1
+            elif y.name == "PreviewPNG":
+                try:
+                    import io
+                    from PIL import Image
+                    ia, ib = Image.open(io.BytesIO(ua)), Image.open(io.BytesIO(ub))
+                    ib.load()
+                    if ia.size != ib.size:
+                        return VerifyResult(ok=False, notes=["preview size changed"])
+                except Exception:
+                    return VerifyResult(ok=False, notes=["preview no longer decodes"])
             elif ua is not None and len(ua) != len(ub):
                 return VerifyResult(ok=False, notes=["binary stream length changed"])
             for si, nm in tb:

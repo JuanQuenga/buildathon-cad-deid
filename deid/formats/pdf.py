@@ -1417,11 +1417,15 @@ class PdfAdapter(Adapter):
                     notes.append(f"attachment rewrite failed: {type(e).__name__}")
             counts["attachments_rewritten"] = na
             changed += na
-            # 6. optional OCR of raster images
-            if os.environ.get("DEID_PDF_OCR") == "1":
+            # 6. OCR of raster images (DEID_PDF_OCR: auto (default) | all | 0)
+            ocr_mode = os.environ.get("DEID_PDF_OCR", "auto")
+            if ocr_mode == "1":
+                ocr_mode = "all"
+            if ocr_mode in ("auto", "all"):
                 try:
                     from deid.formats import _ocr
-                    nocr = _ocr.pdf_images(pdf, plan, ctx)
+                    textless = {i for i, t in enumerate(texts or []) if len(t.strip()) < 20}
+                    nocr = _ocr.pdf_images(pdf, plan, ctx, ocr_mode, textless)
                     counts["ocr_regions"] = nocr
                     changed += nocr
                 except Exception as e:
