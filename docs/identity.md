@@ -147,3 +147,15 @@ Free-text modes: 1,690 flex, 1,662 exact, 465 field-only.
 Path plan on the full manifest: 186,748 of 188,722 paths change; 0 depth/extension/length changes;
 0 case-insensitive collisions; changed components: ~183.8k slot (owner/repo/site/catalog name),
 ~30.2k deeper directories, ~2.9k file stems.
+
+## Checks run (sample, private details in work/)
+
+* 19 unit tests on synthetic values: alias shape/determinism, encodings, boundaries, field vs free
+  text, user dirs without double aliasing, path invariants, Creo stems, reference styles, plan round trip.
+* End-to-end on the 280-file sample (pipeline scan, plan, rewrite into a private scratch dir; no
+  upload), then a multi-encoding leak scan (raw, UTF-16, zip members, PDF Flate streams) for every
+  non-generic plan identity: files containing identities went from 110 to 76, occurrences from 212 to 132,
+  and 3 path components leaked. What remains comes mostly from adapter coverage, not the plan:
+  text-like members of large zip archives copied unsupported, opaque Creo/CATIA/Fusion/Solid Edge streams,
+  and members of old tar archives. A few false identities found this way (a STEP keyword username,
+  title-block phrases, all-dictionary repo names) are now excluded by vocabulary rules.
