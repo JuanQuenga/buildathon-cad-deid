@@ -82,6 +82,7 @@ con.commit()
 print(f"invalidated {n} results ({'all' if full else sorted(names)})")
 EOF
 export DEID_OCR_CACHE=${DEID_OCR_CACHE:-$BASE/work/full/ocr-cache} DEID_CONSTRAINTS_DIR=$W/constraints
+export TMPDIR=$W/tmp; mkdir -p "$TMPDIR"   # keep tool temp files off /tmp (tmpfs quota)
 mkdir -p "$DEID_CONSTRAINTS_DIR"
 A="--input $BASE/input --manifest $MAN --work $W --jobs $JOBS --mem-gb $MEM"
 log "scan";  $PY -m deid.pipeline scan $A >> "$W/scan.log" 2>&1
