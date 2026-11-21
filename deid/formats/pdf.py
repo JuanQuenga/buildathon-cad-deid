@@ -1820,7 +1820,17 @@ def _e16_foreign_tokens(t: str) -> list:
 _E16_TB_LABELS = re.compile(r"(?i)\b(benennung|ma(?:ß|ss)stab|werkstoff|blatt|zeichnungs?-?nr|gezeichnet|gepr[üu]ft|"
                             r"escala|hoja|fecha|dibujado|plano|pl[àa]nol|dibuixat|aprovat|aprovado|revisat|[ée]chelle|"
                             r"dessin[ée]|scala|disegnato|foglio|tekening|getekend|schaal|rysował|skala|arkusz|měřítko|"
-                            r"drawn|checked|approved|scale|sheet|title|material|dwg|date|rev)\b|比例|重量|设计|审核|批准|材料|图号|日期|校核|工艺")
+                            r"drawn|checked|approved|scale|sheet|title|material|dwg|date|rev|"
+                            r"datum|name|norm|kontrolliert|bearbeitet|ma(?:ß|ss)e|menge|pos|zeichnung|teilenummer|"
+                            r"codi|versi[óo]|contacte|nom|data|fitxa|proveïdor|refer[èe]ncia|"
+                            r"nombre|cantidad|pieza|denominaci[óo]n|revisi[óo]n|tolerancia|acabado|peso|"
+                            r"d[ée]signation|mati[èe]re|quantit[ée]|masse|format|indice|"
+                            r"denominazione|materiale|quantit[àa]|peso|data|"
+                            r"benaming|materiaal|datum|naam|"
+                            r"nazwa|materiał|data|skala|"
+                            r"název|materiál|datum|"
+                            r"desenho|escala|folha|material|data|nome)\b|比例|重量|设计|审核|批准|材料|图号|日期|校核|工艺|"
+                            r"标准化|阶段标记|更改文件号|签名|处数|分区|标记|制图|名称|数量|共|张")
 
 
 def _e16_tb_page(W, H, lines) -> bool:
@@ -1828,12 +1838,13 @@ def _e16_tb_page(W, H, lines) -> bool:
     if not W or not H:
         return False
     n_br = n_any = 0
+    words = sum(len(t.split()) for *_, t in lines)
     for x0, y0, x1, y1, t in lines:
         if len(t) <= 40 and _E16_TB_LABELS.search(t):
             n_any += 1
             if x0 > 0.45 * W and y0 > 0.55 * H:
                 n_br += 1
-            if n_br >= 2 or n_any >= 3:
+            if n_br >= 2 or n_any >= 3 or (n_any >= 2 and words < 250):
                 return True
     return False
 
@@ -2113,7 +2124,7 @@ def e15_pdf_images(pdf, plan, ctx, mode="auto", textless_pages=()):
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e16"
+    version = "2e17"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
