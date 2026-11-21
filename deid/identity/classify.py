@@ -58,6 +58,8 @@ EXTRA_PLACEHOLDERS = {norm_key(x) for x in (
     "microsoft", "solidworks", "3dassist", "lenovo", "dell", "hp", "asus", "acer", "msi", "pc", "home",
     "owner", "admin", "administrator", "public", "default", "all users", "guest", "dev", "devel",
     "ubuntu", "pi", "runner", "vagrant", "docker", "build", "builder", "jenkins", "travis", "appveyor",
+    "a company", "an author", "pc user", "managed by terraform", "step tools inc", "3d eye inc", "your name",
+    "your company", "company name", "designer name", "author name", "user name", "username",
 )}
 TITLEBLOCK_STOP = {norm_key(x).replace(" ", "") for x in (
     "appv'd appvd approved appr chk'd chkd checked chk drawn drn dwn designed dsgn mfg q.a qa signature sign "
@@ -66,7 +68,8 @@ TITLEBLOCK_STOP = {norm_key(x).replace(" ", "") for x in (
     "drawing part number description item comments notes eng engineer by of a b c d the and for "
     "ok yes no n/a tbd see note general"
 ).split()}
-VENDOR_TOKENS = {"solidworks", "dassault", "systèmes", "systemes", "autodesk", "ptc", "siemens", "microsoft",
+VENDOR_TOKENS = {"zwcad", "steptools", "sdrc", "transcendata", "kubotek", "ugs", "unigraphics", "datakit",
+                 "cadexchanger", "elysium", "theorem", "terraform", "proficiency", "solidworks", "dassault", "systèmes", "systemes", "autodesk", "ptc", "siemens", "microsoft",
                  "adobe", "spatial", "parasolid", "catia", "inventor", "creo", "onshape", "freecad", "kicad"}
 DATE_LIKE = re.compile(r"\d{1,2}:\d{2}|\d+\s*[年月日]|\b(19|20)\d\d[-/.]\d\d?[-/.]\d\d?\b|"
                        r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|"
@@ -74,7 +77,30 @@ DATE_LIKE = re.compile(r"\d{1,2}:\d{2}|\d+\s*[年月日]|\b(19|20)\d\d[-/.]\d\d?
 URL_IN = re.compile(r"(?i)\bhttps?://([^/\s]+)(/[^\s]*)?")
 
 
+def demojibake(v: str) -> str:
+    """'Î¢ÈíÓÃ»§' (GBK/UTF-8 bytes read as Latin-1) -> original text, else v."""
+    try:
+        b = v.encode("latin-1")
+    except UnicodeEncodeError:
+        return v
+    if all(c < 128 for c in b):
+        return v
+    for enc in ("utf-8", "gbk", "shift_jis", "cp1251"):
+        try:
+            return b.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return v
+
+
 def _ok_value(v: str) -> bool:
+    if not _ok_value1(v):
+        return False
+    d = demojibake(v)
+    return d == v or _ok_value1(d)
+
+
+def _ok_value1(v: str) -> bool:
     k = norm_key(v)
     if not k or k in PLACEHOLDERS or k in SOFTWARE or k in EXTRA_PLACEHOLDERS:
         return False
@@ -87,7 +113,7 @@ def _ok_value(v: str) -> bool:
         return False
     if DATE_LIKE.search(v):
         return False
-    if set(k.split()) <= {"person", "first", "last", "name", "organization", "organisation", "id",
+    if set(t for t in k.split() if not t.isdigit()) <= {"person", "first", "last", "name", "organization", "organisation", "id",
                           "unspecified", "none", "unknown", "author", "user", "company"}:
         return False
     letters = sum(ch.isalpha() for ch in v)
