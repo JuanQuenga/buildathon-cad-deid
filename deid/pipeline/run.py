@@ -313,6 +313,13 @@ def cmd_rewrite(args):
         rcon.commit()
         pool.close()
     rcon.execute("INSERT OR REPLACE INTO meta VALUES('plan_version', ?)", (plan.version,))
+    try:
+        import subprocess
+        sha = subprocess.run(["git", "-C", os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                              "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        rcon.execute("INSERT OR REPLACE INTO meta VALUES('git_sha', ?)", (sha,))
+    except OSError:
+        pass
     rcon.commit()
     if not args.only_prefix and not args.limit:
         removed = remove_orphans(corpus, {m[1] for m in meta.values()})

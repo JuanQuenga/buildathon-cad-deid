@@ -468,8 +468,8 @@ def public_summary(rep) -> str:
          f"renamed: {rep['coverage'].get('renamed', 0)}",
          f"  objects: {rep['limits'].get('objects', 0)}  bytes: {rep['limits'].get('bytes', 0)}  "
          f"over 2 GB: {rep['limits'].get('over_2GB', 0)}",
-         f"  coverage problems: " + ", ".join(f"{k}={v}" for k, v in rep["coverage"].items()
-                                              if k not in ("ok", "renamed") and v) or "  coverage problems: none",
+         "  coverage problems: " + (", ".join(f"{k}={v}" for k, v in rep["coverage"].items()
+                                              if k not in ("ok", "renamed") and v) or "none"),
          "  status by extension:"]
     for ext, c in rep["status_by_ext"].items():
         L.append(f"    .{ext}: " + ", ".join(f"{k}={v}" for k, v in sorted(c.items())))
