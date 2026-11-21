@@ -222,12 +222,12 @@ def _is_sat(head: bytes) -> bool:
         return False
     if _INT.match(head, nl + 1):
         return b"ACIS" in head[:600] or b"#" in head
-    return bool(re.match(rb"(?:-\d+ )?body \$", head[nl + 1:nl + 40]))
+    return bool(re.match(rb"(?:-\d+ )?body [$-]?\d", head[nl + 1:nl + 40]))
 
 
 class SatAdapter(Adapter):
     name = "sat"
-    version = "3"
+    version = "4"
     priority = 9
     magics = ()
     extensions = (".sat", ".sab", ".asat")
