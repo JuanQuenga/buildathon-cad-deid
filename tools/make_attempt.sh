@@ -81,6 +81,19 @@ else:
 con.commit()
 print(f"invalidated {n} results ({'all' if full else sorted(names)})")
 EOF
+# optional: force a rewrite of an explicit list of top-level paths (e.g. files whose content depends on
+# plan behaviour that changed without a module change)
+if [ -n "${EXTRA_INVALIDATE:-}" ] && [ -f "$EXTRA_INVALIDATE" ]; then
+  $PY - "$W" "$EXTRA_INVALIDATE" <<'EOF2'
+import sys, sqlite3
+con = sqlite3.connect(f"{sys.argv[1]}/results.sqlite")
+paths = [l.rstrip("\n") for l in open(sys.argv[2], encoding="utf-8") if l.strip()]
+n = sum(con.execute("DELETE FROM results WHERE path=?", (p,)).rowcount for p in paths)
+con.commit()
+print(f"extra invalidation: {n} results from {len(paths)} listed paths")
+EOF2
+  log "extra invalidation from $EXTRA_INVALIDATE"
+fi
 export DEID_OCR_CACHE=${DEID_OCR_CACHE:-$BASE/work/full/ocr-cache} DEID_CONSTRAINTS_DIR=$W/constraints
 export TMPDIR=$W/tmp; mkdir -p "$TMPDIR"   # keep tool temp files off /tmp (tmpfs quota)
 mkdir -p "$DEID_CONSTRAINTS_DIR"
