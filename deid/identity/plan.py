@@ -133,6 +133,19 @@ class IdentityPlan:
                 old.keep = tuple(sorted(set(old.keep) & set(e.keep)))
                 old.count += e.count
                 old.sources = max(old.sources, e.sources)
+        # A domain whose registrable part is also a project/account name ('step.parts'
+        # as repo name and as web site) renders that part like the name: no kept TLD.
+        for e in list(self.entries.values()):
+            if e.kind != "domain" or not e.keep:
+                continue
+            labels = e.value.lower().split(".")
+            for k in (2, 3):
+                if len(labels) >= k:
+                    reg = labels[-k:]
+                    other = self.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(".".join(reg))))
+                    if other is not None and other.kind != "domain":
+                        regtoks = {norm_token(t) for t in TOKEN_RE.findall(".".join(reg))}
+                        e.keep = tuple(x for x in e.keep if x not in regtoks)
         self._tok = dict(token_aliases or {})
         self._tok_lock = threading.Lock()
         self._used = set(self._tok.values())
