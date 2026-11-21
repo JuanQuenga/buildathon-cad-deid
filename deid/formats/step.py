@@ -420,7 +420,9 @@ class _Stream:
 
 
 _WS = b" \t\r\n"
-_LEAD = re.compile(rb"(?:\s|\xef\xbb\xbf|/\*.*?\*/)*(?:ISO-10303-21|STEP)\s*;", re.S)
+# possessive + comment bodies that cannot contain "*/": the old lazy ".*?" form backtracked
+# catastrophically on comment-heavy non-STEP text (C sources inside archives)
+_LEAD = re.compile(rb"(?:\s|\xef\xbb\xbf|/\*(?:[^*]|\*(?!/))*+\*/)*+(?:ISO-10303-21|STEP)\s*+;")
 
 
 def _has_header(head: bytes) -> bool:
