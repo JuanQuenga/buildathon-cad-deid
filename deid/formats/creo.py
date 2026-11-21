@@ -32,7 +32,7 @@ class CreoAdapter(Adapter):
     version = "1"
     priority = 10
     magics = ("creo",)
-    path_independent = True
+    path_independent = False   # CMNM follows the mapped file name
 
     def matches(self, ctx, head):
         return head.startswith(b"#UGC")
@@ -80,7 +80,18 @@ class CreoAdapter(Adapter):
                 continue
             if k == "CMNM" and v[:3].isdigit():
                 pre, val = v[:3], v[3:]
-                nv = plan.replace_text(val)
+                nv = None
+                base = re.sub(r"\.\d+$", "", ctx.member_name.rsplit("/", 1)[-1])
+                try:
+                    mbase = re.sub(r"\.\d+$", "", plan.map_path(ctx.logical_path).rsplit("/", 1)[-1])
+                except Exception:
+                    mbase = base
+                vs = val.rstrip()
+                if vs.lower() == base.lower() and len(mbase) == len(base):
+                    # model name == file name: keep them equal after mapping
+                    nv = (mbase if vs == base else mbase.lower() if vs == base.lower() else mbase) + val[len(vs):]
+                if nv is None or nv == val:
+                    nv = plan.replace_text(val) if mbase.lower() != base.lower() or vs.lower() != base.lower() else val
                 new = pre + nv if len(nv) == len(val) else None
             else:
                 nv = nu.sub_value(plan, v, "account" if k == "HOST" else None)
