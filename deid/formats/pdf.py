@@ -1712,7 +1712,8 @@ def e5_identities(src_path, plan):
     for v in cands:
         if isinstance(v, tuple):
             v = v[1].strip().strip(":：;,")
-            if v in out or not _e19_value_ok(v):
+            # only label words next to labels (what a naive English extractor lists as the value)
+            if v in out or not _e19_value_ok(v) or not _E19_EN_LABEL.match(v):
                 continue
             try:
                 if plan.replace_text(v) != v:
