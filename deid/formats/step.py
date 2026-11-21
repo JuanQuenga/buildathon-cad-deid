@@ -83,7 +83,7 @@ KIND_BY_FIELD = {
     ("PRODUCT_DEFINITION", "description"): "free_text",
     ("PRODUCT_DEFINITION_FORMATION", "description"): "free_text",
     ("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE", "description"): "free_text",
-    ("NEXT_ASSEMBLY_USAGE_OCCURRENCE", "id"): "part_name",
+    ("NEXT_ASSEMBLY_USAGE_OCCURRENCE", "id"): "free_text",
     ("NEXT_ASSEMBLY_USAGE_OCCURRENCE", "name"): "part_name",
     ("NEXT_ASSEMBLY_USAGE_OCCURRENCE", "description"): "free_text",
     ("NEXT_ASSEMBLY_USAGE_OCCURRENCE", "reference_designator"): "part_name",
@@ -416,6 +416,28 @@ class _Stream:
                 raise ValueError("unterminated token over 512 MB")
 
 
+_WS = b" \t\r\n"
+
+
+def _delimited(buf, s: int, e: int) -> bool:
+    """A real Part 21 string is preceded by '(' or ',' and followed by ',' or ')'
+    (whitespace allowed).  Tokens produced by an unescaped quote in a malformed
+    file fail this test and are never edited."""
+    i = s - 1
+    lim = max(0, s - 256)
+    while i >= lim and buf[i] in _WS:
+        i -= 1
+    if i < lim or buf[i] not in b"(,":
+        # header comments may precede a string: /* name */ 'x'
+        if not (i >= 1 and buf[i] == 0x2F and buf[i - 1] == 0x2A):
+            return False
+    j = e
+    lim = min(len(buf), e + 256)
+    while j < lim and buf[j] in _WS:
+        j += 1
+    return j < lim and buf[j] in b",)"
+
+
 def _is_ascii_file(path: str) -> bool:
     with open(path, "rb") as f:
         while True:
@@ -428,7 +450,7 @@ def _is_ascii_file(path: str) -> bool:
 
 class StepAdapter(Adapter):
     name = "step"
-    version = "3"
+    version = "4"
     priority = 10
     magics = ("step",)
     extensions = (".step", ".stp", ".p21")
@@ -446,6 +468,7 @@ class StepAdapter(Adapter):
         col = ObsCollector(cap=3000)
         nstr = 0
         ents = 0
+        malformed = 0
         header_ok = False
         with open(src_path, "rb") as f:
             head = f.read(64)
@@ -460,6 +483,9 @@ class StepAdapter(Adapter):
                     if any(ch.isalpha() for ch in txt):
                         col.add("free_text", "step.comment", txt.strip(), "comment", 0.5)
                     continue
+                if not _delimited(buf, s, e):
+                    malformed += 1
+                    continue
                 raw = buf[s + 1:e - 1]
                 val, _ = decode_p21(raw)
                 if not val.strip():
@@ -473,8 +499,10 @@ class StepAdapter(Adapter):
                     col.add("path", field, val, ent, 0.8)
                     continue
                 col.add(kind_ or "free_text", field, val, ent, 0.9 if kind_ else 0.5)
-        status = "ok" if header_ok else "source_exception"
+        status = "ok" if header_ok and not malformed else "source_exception"
         notes = [] if header_ok else ["missing ISO-10303-21 header"]
+        if malformed:
+            notes.append(f"{malformed} string tokens with invalid delimiters (unescaped quotes in source)")
         if col.dropped:
             notes.append(f"observations capped ({col.dropped} more)")
         return ScanResult(observations=col.obs, references=col.refs,
@@ -486,6 +514,7 @@ class StepAdapter(Adapter):
         pc = PlanCache(plan, ctx)
         changed = 0
         seen = 0
+        malformed = 0
         cache: dict = {}      # (raw, kind) -> new token bytes
         tmp = dst_path + ".part"
         try:
@@ -499,6 +528,9 @@ class StepAdapter(Adapter):
                     seen += 1
                     if kind == "cmt":
                         new = self._sub_comment(tok, pc)
+                    elif not _delimited(buf, s, e):
+                        malformed += 1       # unescaped quote in the source: leave as is
+                        new = tok
                     else:
                         ent, fld, kind_ = describe(buf[rec:s] if rec >= 0 else None)
                         if kind_ == "protected":
@@ -521,7 +553,8 @@ class StepAdapter(Adapter):
             os.unlink(tmp)
             return RewriteResult(status=VERIFIED_UNCHANGED, counts={"tokens": seen})
         os.replace(tmp, dst_path)
-        return RewriteResult(status=REWRITTEN, counts={"tokens": seen, "strings_replaced": changed})
+        notes = [f"{malformed} malformed string tokens left unchanged"] if malformed else []
+        return RewriteResult(status=REWRITTEN, counts={"tokens": seen, "strings_replaced": changed}, notes=notes)
 
     @staticmethod
     def _sub_string(raw: bytes, kind: Optional[str], pc: PlanCache) -> bytes:
