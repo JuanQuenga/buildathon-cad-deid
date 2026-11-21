@@ -401,6 +401,33 @@ def cmd_validate(args):
             exc.append((o, s, notes))
     rep["exceptions"] = len(exc)
 
+    # 3b. alias consistency -----------------------------------------------------
+    ents = getattr(plan, "entries", None)
+    if isinstance(ents, dict):
+        seen, ac = {}, collections.Counter()
+        for k, e in ents.items():
+            try:
+                a1 = plan.alias(e.value, e.kind)
+                a2 = plan.alias(e.value, e.kind)
+            except Exception:
+                ac["alias_error"] += 1
+                continue
+            if a1 is None:
+                ac["no_alias"] += 1
+                continue
+            if a1 != a2:
+                ac["nondeterministic"] += 1
+            if a1.lower() == e.value.lower():
+                ac["alias_equals_original"] += 1
+            if a1.lower() in seen and seen[a1.lower()] != k:
+                ac["shared_alias"] += 1
+            seen[a1.lower()] = k
+            ac["aliased"] += 1
+        rep["aliases"] = dict(ac)
+        for k in ("nondeterministic", "shared_alias"):
+            if ac.get(k):
+                hard.append(f"alias_{k}={ac[k]}")
+
     # 4. references -----------------------------------------------------------
     scon = db.scan_db(args.work)
     bad_refs = check_refs(plan, scon, out_paths, rep) or []
@@ -486,6 +513,8 @@ def public_summary(rep) -> str:
          "  status by extension:"]
     for ext, c in rep["status_by_ext"].items():
         L.append(f"    .{ext}: " + ", ".join(f"{k}={v}" for k, v in sorted(c.items())))
+    if "aliases" in rep:
+        L.append("  aliases: " + ", ".join(f"{k}={v}" for k, v in sorted(rep["aliases"].items())))
     if "refs" in rep:
         L.append("  references: " + ", ".join(f"{k}={v}" for k, v in sorted(rep["refs"].items())))
     if "leaks" in rep:
