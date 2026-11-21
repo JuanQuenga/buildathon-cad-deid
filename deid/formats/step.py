@@ -417,6 +417,12 @@ class _Stream:
 
 
 _WS = b" \t\r\n"
+_LEAD = re.compile(rb"(?:\s|\xef\xbb\xbf|/\*.*?\*/)*ISO-10303-21\s*;", re.S)
+
+
+def _has_header(head: bytes) -> bool:
+    """ISO-10303-21 signature, allowing a BOM and leading comments."""
+    return bool(_LEAD.match(head))
 
 
 def _delimited(buf, s: int, e: int) -> bool:
@@ -460,8 +466,7 @@ class StepAdapter(Adapter):
     def matches(self, ctx, head):
         if ctx.magic == "step":
             return True
-        h = head.lstrip(b"\xef\xbb\xbf \t\r\n")
-        return h.startswith(b"ISO-10303-21")
+        return _has_header(head)
 
     # -- scan -------------------------------------------------------------
     def scan(self, ctx, src_path):
@@ -471,8 +476,8 @@ class StepAdapter(Adapter):
         malformed = 0
         header_ok = False
         with open(src_path, "rb") as f:
-            head = f.read(64)
-            header_ok = head.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"ISO-10303-21")
+            head = f.read(64)  # noqa
+            header_ok = _has_header(head + f.read(65536))
             f.seek(0)
             for kind, buf, s, e, rec in _Stream(f):
                 if kind == "pass":
