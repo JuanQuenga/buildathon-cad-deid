@@ -49,12 +49,13 @@ PARASOLID_HDR = re.compile(rb"(USER|SITE|MC_MODEL|MC_ID|APPL|FILE|KEY)=([^;\r\n]
 TITLE_LABEL = re.compile(r"(?i)\b(drawn|drawn by|designed|designed by|designer|author|checked|checked by|approved|approved by|engineer|draftsman|creator|owner|company|customer|client|gezeichnet|bearbeitet|gepr[uü]ft|dessin[eé]|auteur|v[eé]rifi[eé]|nome|nombre|dibuj[oó]|disegnato)\s*[:=]?\s+([A-Z][\w.\-']+(?:\s+[A-Z][\w.\-']+){0,3})")
 
 MAX_MEMBER = 64 << 20
+_SURR = re.compile("[\ud800-\udfff]")
 
 
 def _obs(out, kind, field, value, ev=""):
     if isinstance(value, bytes):
         value = value.decode("utf-8", "replace") if not _is_latin1(value) else value.decode("latin-1")
-    value = value.strip().strip("\x00")
+    value = _SURR.sub("\ufffd", value).strip().strip("\x00")
     if not value or len(value) > 300:
         return
     out.append((kind, field, value, ev))
@@ -584,7 +585,8 @@ def main(argv=None):
         futs = [ex.submit(scan_path, fp, p, args.max_bytes) for fp, p in todo]
         for fu in as_completed(futs):
             p, obs = fu.result()
-            fo.write(json.dumps({"path": p, "obs": obs}, ensure_ascii=False) + "\n")
+            fo.write(json.dumps({"path": p, "obs": obs}, ensure_ascii=True) + "\n")
+            fo.flush()
             n += 1
             if n % 2000 == 0:
                 print(n, file=sys.stderr, flush=True)
