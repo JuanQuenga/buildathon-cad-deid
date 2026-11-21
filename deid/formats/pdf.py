@@ -1299,7 +1299,7 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2"
+    version = "3"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1509,6 +1509,17 @@ class PdfAdapter(Adapter):
                 try:
                     from deid.formats import _ocr
                     textless = {i for i, t in enumerate(texts or []) if len(t.strip()) < 20}
+                    # pages with a text layer but a title block drawn as vector outlines or an image:
+                    # no extractable line in the bottom-right title-block region
+                    if os.environ.get("DEID_PDF_OCR_TITLEBLOCK", "1") == "1":
+                        try:
+                            npg = int(os.environ.get("DEID_PDF_OCR_PAGES", "3"))
+                            for i, (W, H, lines) in enumerate(_bbox_lines(src_path, max_pages=npg)):
+                                if W and H and not any(t.strip() and x0 > 0.5 * W and y0 > 0.6 * H
+                                                       for (x0, y0, x1, y1, t) in lines):
+                                    textless.add(i)
+                        except Exception:
+                            pass
                     nocr = _ocr.pdf_images(pdf, plan, ctx, ocr_mode, textless)
                     counts["ocr_regions"] = nocr
                     changed += nocr
