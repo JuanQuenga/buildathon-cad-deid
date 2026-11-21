@@ -26,7 +26,7 @@ def test_cfb_roundtrip(tmp_path):
     ctx = FileContext(logical_path="x/a.ipt", magic="cfb", tmp_dir=str(tmp_path))
     s = ad.scan(ctx, src)
     vals = {(o.kind, o.value) for o in s.observations}
-    assert ("person", "Alice Example") in vals and ("person", "aexample") in vals
+    assert ("saved_account", "Alice Example") in vals and ("saved_account", "aexample") in vals
     assert any(r.raw.endswith("Bracket.ipt") for r in s.references)
     plan = DictPlan({"Alice Example": "Person Alpha1", "aexample": "user0001"},
                     paths={"Bracket.ipt": "Part-01.ipt"})

@@ -217,9 +217,9 @@ def read_scan_db(db):
     """Stream (path, obs) from the pipeline scan DB (deid/api Observation rows)."""
     import sqlite3
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    cur = con.execute("select path, kind, field, value from observations "
-                      "where kind in ('person','company','organization','account','username','email','domain','url','free_text') "
-                      "order by path")
+    cur = con.execute("select path, case kind when 'saved_account' then 'account' else kind end, field, value "
+                      "from observations where kind in ('person','company','organization','account','username',"
+                      "'saved_account','email','domain','url','free_text') order by path")
     last, buf = None, []
     for path, kind, field, value in cur:
         if value is None:

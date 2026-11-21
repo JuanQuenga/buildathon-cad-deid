@@ -31,8 +31,13 @@ PLAN_FORMAT = 1
 # part_number / part_name / document_number are NOT generated: a generic part
 # name ("Bracket") identifies nobody, and generating would desynchronise the
 # name from the (dictionary-mapped) file name.  They go through the dictionary.
+# Windows built-in account names: generic words elsewhere, but as the account that saved a file
+# (OLE/DWG last-saved-by, C:\Users\<name>) they are an account and get one consistent pseudonym
+WINDOWS_ACCOUNTS = {"administrator", "admin", "user", "owner", "guest", "default user", "defaultuser",
+                    "localuser", "local user", "workstation", "standard", "benutzer", "usuario", "utilisateur"}
+
 IDENTITY_KINDS = {
-    "person", "company", "organization", "organisation", "account", "username",
+    "person", "company", "organization", "organisation", "account", "username", "saved_account",
     "address", "phone", "email", "domain", "url",
 }
 
@@ -279,9 +284,11 @@ class IdentityPlan:
         if not stripped:
             return None
         key = norm_key(stripped)
+        k = (kind or "").lower()
+        if k == "saved_account" and key in WINDOWS_ACCOUNTS:
+            return self._render_tokens(v)
         if not key or key in PLACEHOLDERS or key in SOFTWARE:
             return None
-        k = (kind or "").lower()
         if k == "email" or (not k and EMAIL_RE.fullmatch(stripped)):
             return EMAIL_RE.sub(self._email_sub, v)
         if k == "domain":
@@ -413,6 +420,8 @@ class IdentityPlan:
     def _userdir_sub(self, m):
         user = m.group(1)
         key = norm_key(user)
+        if key in WINDOWS_ACCOUNTS:
+            return m.group(0)[: m.start(1) - m.start(0)] + self._render_tokens(user)
         if not key or key in PLACEHOLDERS:
             return m.group(0)
         ent = self.entries.get("".join(key.split()))

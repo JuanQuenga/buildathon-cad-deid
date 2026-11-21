@@ -427,8 +427,8 @@ class Dwg:
 # SummaryInfo
 # ---------------------------------------------------------------------------
 SUMMARY_FIELDS = ["title", "subject", "author", "keywords", "comments", "lastsavedby", "revision", "hyperlinkbase"]
-SUMMARY_KIND = {"title": "part_name", "subject": "free_text", "author": "person", "keywords": "free_text",
-                "comments": "free_text", "lastsavedby": "person", "revision": None, "hyperlinkbase": "url"}
+SUMMARY_KIND = {"title": "part_name", "subject": "free_text", "author": "saved_account", "keywords": "free_text",
+                "comments": "free_text", "lastsavedby": "saved_account", "revision": None, "hyperlinkbase": "url"}
 
 
 def parse_summary(buf: bytes, wide: bool):
@@ -477,7 +477,7 @@ _DWG_REF = re.compile(r"[^\x00|<>\"*?]{1,240}\.(dwg|dxf|pdf|png|jpg|jpeg|tif|bmp
 
 class DwgAdapter(Adapter):
     name = "dwg"
-    version = "1"
+    version = "2"
     priority = 20
     magics = ("dwg",)
     extensions = (".dwg",)

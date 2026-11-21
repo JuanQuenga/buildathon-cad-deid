@@ -82,14 +82,14 @@ USERDIR_RE = re.compile(r"(?:\\|/)(?:Users|Documents and Settings|home)(?:\\|/)(
 
 # Title-block labels (multilingual-ish).  value of the label -> observation kind
 TB_LABELS = [
-    (re.compile(r"\b(drawn|drn|drawn by|draftsman|drafter|designer|designed|design(?:ed)? by|dessin[ée]|gezeichnet|gez\.?|dibujado|dibuj[oó]|disegnato|author|autor|auteur|created by|creator|engineer|eng(?:ineering)?|checked|chk|chkd|checked by|gepr[üu]ft|gepr\.?|revisado|verificado|controllato|v[ée]rifi[ée]|approved|appd|appr|approved by|freigegeben|aprobado|approvato|qa|mfg|manager|responsible|name|nombre|bearb\.?|bearbeitet|norm|owner|student|alumno)\b", re.I), "person"),
-    (re.compile(r"\b(company|firma|empresa|soci[ée]t[ée]|azienda|organi[sz]ation|customer|client|kunde|cliente|vendor|supplier|manufacturer|university|universidad|school|lab)\b", re.I), "company"),
-    (re.compile(r"\b(project|projekt|proyecto|projet|progetto|job|program)\b", re.I), "project"),
-    (re.compile(r"\b(dwg\.? ?no|drawing (?:no|number|nr)|zeichnungs?-?nr|zeichnungsnummer|plano n|n[º°o]\.? de plano|doc(?:ument)?\.? ?(?:no|number|nr)|sheet no)\b", re.I), "document_number"),
-    (re.compile(r"\b(part (?:no|number|nr)|p/?n|item no|art(?:ikel)?\.?-?nr|sachnummer|teilenummer|n[º°o]\.? de pieza|ref(?:erence)?\.? no)\b", re.I), "part_number"),
-    (re.compile(r"\b(title|titel|t[íi]tulo|titre|benennung|description|denominaci[oó]n|designation|bezeichnung)\b", re.I), "part_name"),
-    (re.compile(r"\b(e-?mail|mail|tel|phone|fax|telefon|tel[ée]fono)\b", re.I), "contact"),
-    (re.compile(r"\b(address|adresse|direcci[oó]n|anschrift)\b", re.I), "address"),
+    (re.compile(r"\b(drawn|drn|drawn by|draftsman|drafter|designer|designed|design(?:ed)? by|dessin[ée]|gezeichnet|gez\.?|dibujado|dibuj[oó]|dibuixat|disegnato|desenhado|desenhista|projetista|projectista|getekend|tekenaar|author|autor|auteur|created by|creator|engineer|eng(?:ineering)?|checked|chk|chkd|checked by|gepr[üu]ft|gepr\.?|revisado|revisat|revis[ãa]o por|verificado|verificat|controllato|v[ée]rifi[ée]|gecontroleerd|approved|appd|appr|approved by|freigegeben|aprobado|aprovat|aprovado|approvato|goedgekeurd|elaborado|elaborat|responsable|respons[áa]vel|contact|contacte|contacto|contato|qa|mfg|manager|responsible|name|nombre|bearb\.?|bearbeitet|norm|owner|student|alumno|alumne|ersteller|erstellt|pr[üu]fer)\b", re.I), "person"),
+    (re.compile(r"\b(company|firma|empresa|soci[ée]t[ée]|azienda|organi[sz]ation|customer|client|kunde|cliente|vendor|supplier|prove[ïi]dor|fornecedor|fournisseur|lieferant|manufacturer|fabricant|fabricante|hersteller|university|universidad|universitat|universidade|universit[àa]|school|lab|institut[eo]?)\b", re.I), "company"),
+    (re.compile(r"\b(project|projekt|proyecto|projecte|projeto|projet|progetto|job|program)\b", re.I), "project"),
+    (re.compile(r"\b(dwg\.? ?no|drawing (?:no|number|nr)|zeichnungs?-?nr|zeichnungsnummer|plano n|n[º°o]\.? de plano|doc(?:ument)?\.? ?(?:no|number|nr|code)|codi(?: document)?|c[óo]digo|codice|code|sheet no|tekening ?nr|n[º°o] plan)\b", re.I), "document_number"),
+    (re.compile(r"\b(part (?:no|number|nr)|p/?n|item no|art(?:ikel)?\.?-?nr|sachnummer|teilenummer|n[º°o]\.? de pieza|ref(?:erence)?\.? no|ref\.? interna|refer[èe]ncia|referencia|refer[êe]ncia|ref\.? disseny|ref\.? dise[ñn]o)\b", re.I), "part_number"),
+    (re.compile(r"\b(title|titel|t[íi]tulo|t[íi]tol|titre|benennung|description|descripci[oó]|denominaci[oó]n|designation|bezeichnung|nom de la pe[çc]a|pe[çc]a)\b", re.I), "part_name"),
+    (re.compile(r"\b(e-?mail|mail|tel|phone|fax|telefon|tel[ée]fono|tel[èe]fon|mobile|m[óo]vil)\b", re.I), "contact"),
+    (re.compile(r"\b(address|adresse|direcci[oó]n?|adre[çc]a|endere[çc]o|anschrift)\b", re.I), "address"),
 ]
 
 

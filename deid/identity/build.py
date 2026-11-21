@@ -285,6 +285,13 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
     inventory = list(paths)
     if scan_db and os.path.exists(scan_db):
         b.from_scan_db(scan_db)
+        # drawing title blocks: people, companies, phones and the drawing's own part/document
+        # number (see pdfids.py); part numbers of a drawing are identifying (brief: "identifying
+        # project or part names and numbers")
+        from .pdfids import entries as tb_entries
+        for value, kind, mode, nfiles in tb_entries(scan_db):
+            b.add(value, kind, mode, (), "pdf.titleblock", count=nfiles, sources=nfiles)
+            b.stats[f"titleblock_{kind}"] += 1
         try:
             con = sqlite3.connect(f"file:{scan_db}?mode=ro", uri=True)
             members = [r[0] for r in con.execute("select path from files where path like '%!/%'")]

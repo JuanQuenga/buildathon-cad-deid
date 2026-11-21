@@ -51,8 +51,8 @@ FMTID_USER = "D5CDD505-2E9C-101B-9397-08002B2CF9AE"
 FMTID_INV_DESIGN = "32853F0F-3444-11D1-9E93-0060B03C1CA6"
 FMTID_INV_SUMMARY = "F29F85E0-4FF9-1068-AB91-08002B27B3D9"
 
-SUMMARY_KIND = {2: "part_name", 3: "free_text", 4: "person", 5: "free_text", 6: "free_text",
-                7: None, 8: "person", 9: None, 18: "software"}
+SUMMARY_KIND = {2: "part_name", 3: "free_text", 4: "saved_account", 5: "free_text", 6: "free_text",
+                7: None, 8: "saved_account", 9: None, 18: "software"}
 DOCSUMMARY_KIND = {2: "free_text", 14: "person", 15: "company", 26: None, 27: None}
 # Inventor "Design Tracking Properties" (documented iProperty ids)
 INV_DESIGN_KIND = {5: "part_name", 7: "free_text", 9: "person", 10: "free_text", 11: "free_text",
@@ -415,7 +415,7 @@ def scrub_dead(path, regions):
 
 class CfbAdapter(Adapter):
     name = "cfb"
-    version = "2"
+    version = "3"
     priority = 10
     magics = ("cfb",)
     path_independent = False

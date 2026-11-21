@@ -254,7 +254,7 @@ def _redact_preview(ctx, name, u, plan, counts) -> Optional[bytes]:
 
 class SolidWorksAdapter(Adapter):
     name = "solidworks"
-    version = "1"
+    version = "2"
     priority = 20
     extensions = SW_EXTS
     path_independent = False   # references depend on the path plan
@@ -589,7 +589,7 @@ class SolidWorksLockAdapter(Adapter):
         t, enc = self._decode(b)
         if not t:
             return RewriteResult(status=VERIFIED_UNCHANGED)
-        n = nu.sub_value(plan, t, "account")
+        n = nu.sub_value(plan, t, "saved_account")
         if n == t:
             return RewriteResult(status=VERIFIED_UNCHANGED)
         head = b.split(b"\x00", 1)

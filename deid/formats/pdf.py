@@ -1299,7 +1299,7 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "1"
+    version = "2"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
