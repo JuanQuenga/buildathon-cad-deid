@@ -59,7 +59,7 @@ def _mode_for(value, *, strong=True, kind=None):
     if kind in ("person", "account", "username") and len(toks) == 1 and len(c) < 5:
         return FIELD  # short single names ('igor', 'Dach'): only where they sit in an identity field
     if kind == "account" and len(toks) >= 2 and len(c) >= 8:
-        return FLEX  # 'Source-Robotics' owner handle == 'Source Robotics' organisation
+        return FLEX  # 'Zorblax-Works' owner handle == 'Zorblax Works' organisation
     if kind in NAME_KINDS and len(toks) >= 2 and sum(len(t) >= 2 for t in toks) >= 2 and len(c) >= 6:
         return FLEX  # 'Rose Hunter': dictionary words, but a full name is an identity
     if _all_generic(value):
@@ -330,7 +330,7 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
             toks = TOKEN_RE.findall(e.value)
             # vocabulary compounds ('ToolChanger', '3Dmodels') are demoted when the same
             # spelling also occurs under other owners or is a '3D...' folder-ish name;
-            # a compound unique to one source ('CadQuarry'-like) stays a project name.
+            # a compound unique to one source ('Zorbquarry'-like) stays a project name.
             if toks and all(is_generic_token(t) for t in toks) and (
                     len(toks) > 1 or b.spread.get(norm_token(toks[0]), 0) > 1
                     or __import__("re").match(r"^\d+d", norm_token(toks[0]))):
