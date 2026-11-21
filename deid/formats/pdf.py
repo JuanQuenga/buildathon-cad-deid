@@ -1805,7 +1805,7 @@ def _e16_foreign_tokens(t: str) -> list:
     out = []
     for tok in TOKEN_RE.findall(t):
         cjk = any("\u2e80" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" or "\u3040" <= ch <= "\u30ff" for ch in tok)
-        if any(ch.isdigit() for ch in tok) or len(tok) < (2 if cjk else 3) or len(set(tok.lower())) == 1:
+        if any(ch.isdigit() for ch in tok) or len(tok) < (2 if cjk else 4) or len(set(tok.lower())) == 1:
             continue
         tl = tok.lower()
         if not cjk and tl not in _E16_FORCE and (is_word(tl) or tl in _E5_ENG_WORDS or tl in _E5_FUNC or tl in _E16_EN_ABBR):
