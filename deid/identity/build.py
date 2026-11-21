@@ -60,7 +60,7 @@ def _mode_for(value, *, strong=True, kind=None):
     if kind in NAME_KINDS and len(toks) >= 2 and sum(len(t) >= 2 for t in toks) >= 2 and len(c) >= 6:
         return FLEX  # 'Rose Hunter': dictionary words, but a full name is an identity
     if _all_generic(value):
-        return EXACT if len(c) >= 12 and len(key.split()) >= 2 else FIELD
+        return FIELD  # dictionary words only ('mechanical-parts'): slot/field only, never free text
     return FLEX if strong else EXACT
 
 
@@ -321,6 +321,17 @@ def build_plan(scan_db, manifest, plan_dir, extra_tables=(), secret=None):
                 with open(sp, "wb") as fh:
                     fh.write(secret)
                 os.chmod(sp, 0o600)
+    for e in b.entries:
+        if e.mode == FLEX and e.origin.startswith("path.") and e.kind in ("project", "account"):
+            toks = TOKEN_RE.findall(e.value)
+            # vocabulary compounds ('ToolChanger', '3Dmodels') are demoted when the same
+            # spelling also occurs under other owners or is a '3D...' folder-ish name;
+            # a compound unique to one source ('CadQuarry'-like) stays a project name.
+            if toks and all(is_generic_token(t) for t in toks) and (
+                    len(toks) > 1 or b.spread.get(norm_token(toks[0]), 0) > 1
+                    or __import__("re").match(r"^\d+d", norm_token(toks[0]))):
+                e.mode = FIELD
+                b.stats["flex_to_field_generic"] += 1
     plan = IdentityPlan(b.entries, secret, inventory,
                         meta={"stats": dict(b.stats), "tables": [os.path.basename(t) for t in tables]})
     save_plan(plan, plan_dir)

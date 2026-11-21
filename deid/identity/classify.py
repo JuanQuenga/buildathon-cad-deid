@@ -137,7 +137,9 @@ def _name_like(v: str) -> bool:
         return False
     if len(toks) == 1:
         return len(toks[0]) >= 3 and not is_plain_token(toks[0])
-    return True
+    # several tokens: at least one must not be a plain word (e.g. a surname), so
+    # phrases such as 'TM Release' or 'Per Spec' next to a label are rejected
+    return any(len(t) >= 3 and not is_plain_token(t) for t in toks)
 
 
 def _domain_ok(d: str) -> bool:

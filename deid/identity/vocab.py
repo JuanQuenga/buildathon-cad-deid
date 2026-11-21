@@ -81,6 +81,12 @@ pcb board connector cable sensor camera lens optical optics laser led light lamp
 pdf png jpg jpeg svg tif tiff zip tar gz rar 7z
 modell zeichnung teil baugruppe welle zahnrad deckel platte halter schraube mutter lager
 piece pieces plan plans assemblage assemblages moule
+pcurve bspline nurbs spline polyline lwpolyline mtext text dimension hatch insert solid3d region body3d
+vertex edge face shell loop wire surface curve point line circle arc ellipse plane axis placement
+toroidal conical cylindrical spherical planar degenerate composite trimmed offset swept extruded revolved
+brep facet facets mesh tessellated triangulated manifold advanced faceted product shape representation
+dxf dwg iges igs stp step sat sab parasolid xt xb jt u3d stl obj vrml wrl ply fbx gltf glb usd ifc
+endsec endsolid facetnormal outerloop endloop endfacet header data iso
 dof nema gt2 gt3 m2 m3 m4 m5 m6 m8 m10 m12 rpi esp32 arduino raspberry pi
 """.split())
 
@@ -158,12 +164,17 @@ def is_generic_token(tok: str) -> bool:
     t = tok.lower()
     if is_plain_token(t):
         return True
+    if _re.match(r"^\d+d[a-z]{3,}$", t) and (is_word(t.lstrip("0123456789")[1:]) or is_compound_of_words(t.lstrip("0123456789")[1:])):
+        return True
     if _re.search(r"\d", t):
         alpha = _re.findall(r"[^\W\d_]+", t)
         return bool(alpha) and all(len(a) <= 2 or a in ENGINEERING for a in alpha)
+    t2 = _re.sub(r"^\d+d(?=[a-z]{3})", "", t)  # '3dmodels' -> 'models'
+    if t2 != t and (is_word(t2) or is_compound_of_words(t2)):
+        return True
     parts = subwords(tok)
-    if len(parts) > 1:
-        return all(len(p) <= 2 or is_word(p) for p in parts)
+    if len(parts) > 1 and all(len(p) <= 2 or is_word(p) for p in parts):
+        return True
     return is_compound_of_words(t)
 
 
