@@ -596,9 +596,13 @@ def line_edits(line, new_text):
         if o[0] == "equal":
             merged.append(o)
             continue
-        # merge with previous change if only whitespace 'equal' tokens separate them
+        # merge with previous change if only whitespace 'equal' tokens separate them, and only
+        # when that whitespace is real space glyphs: a synthetic gap space (large gap between two
+        # separate text items, e.g. two title-block cells on one baseline) keeps the edits apart,
+        # so each pseudonym is drawn at its own position and keeps its place in reading order
         if (len(merged) >= 2 and merged[-1][0] == "equal" and merged[-2][0] != "equal"
-                and all(not t.strip() for t in ot[merged[-1][1]:merged[-1][2]])):
+                and all(not t.strip() for t in ot[merged[-1][1]:merged[-1][2]])
+                and all(gi is not None for _, gi in line[offs[merged[-1][1]]:offs[merged[-1][2]]])):
             eq = merged.pop()
             prev = merged[-1]
             prev[0] = "replace"
@@ -1299,7 +1303,7 @@ INFO_KIND = {"/Author": "person", "/Creator": "software", "/Producer": "software
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "1"
+    version = "2"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
