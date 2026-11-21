@@ -1827,9 +1827,143 @@ def _model_values(logical_path: str) -> set:
     return _MODEL_VALUES.get(logical_path, set())
 
 
+# ---------------------------------------------------------------------------
+# Non-text streams: plan values inside embedded font programs (TrueType name tables, CFF strings, Type1
+# cleartext), ICC profiles and other non-content streams get their existing aliases, same length, so every
+# table offset stays valid. Page content, forms, images, XMP and embedded files are handled elsewhere.
+# ---------------------------------------------------------------------------
+_SCRUB_AC: dict = {}
+
+
+def _scrub_automaton(base):
+    a = _SCRUB_AC.get(id(base))
+    if a is not None:
+        return a
+    import ahocorasick
+    a = ahocorasick.Automaton()
+    n = 0
+    for k, e in base.entries.items():
+        v = e.value
+        if e.mode == "field" or len(v) < 4:
+            continue
+        for enc in ("latin-1", "utf-16-be"):
+            try:
+                b = v.lower().encode(enc)
+            except UnicodeEncodeError:
+                continue
+            a.add_word(b.decode("latin-1"), (k, enc, len(b)))
+            n += 1
+    if n:
+        a.make_automaton()
+    _SCRUB_AC.clear()
+    _SCRUB_AC[id(base)] = a if n else False
+    return _SCRUB_AC[id(base)]
+
+
+def _scrub_targets(pdf):
+    skip = set()
+    for pg in pdf.pages:
+        try:
+            c = pg.obj.get("/Contents")
+            for x in (c if isinstance(c, Array) else [c]):
+                if x is not None:
+                    skip.add(x.objgen)
+        except Exception:
+            pass
+    targets = {}
+    for o in pdf.objects:
+        try:
+            if isinstance(o, Array) and len(o) >= 2 and o[0] == Name("/ICCBased"):
+                targets[o[1].objgen] = "icc"
+            elif isinstance(o, (Dictionary, Stream)):
+                for k in ("/FontFile", "/FontFile2", "/FontFile3"):
+                    if k in o:
+                        targets[o[k].objgen] = "font"
+        except Exception:
+            continue
+    out = []
+    for o in pdf.objects:
+        if not isinstance(o, Stream) or o.objgen in skip:
+            continue
+        try:
+            st, ty = o.get("/Subtype"), o.get("/Type")
+        except Exception:
+            continue
+        kind = targets.get(o.objgen)
+        if kind is None:
+            if ty in (Name("/Metadata"), Name("/EmbeddedFile"), Name("/ObjStm"), Name("/XRef")) or \
+                    st in (Name("/Image"), Name("/Form")):
+                continue
+            kind = "other"
+        out.append((o, kind))
+    return out
+
+
+def scrub_nontext_streams(pdf, plan, counts) -> int:
+    if os.environ.get("DEID_PDF_SCRUB_STREAMS", "1") != "1":
+        return 0
+    import zlib
+    base = getattr(plan, "_p", plan)
+    ac = _scrub_automaton(base)
+    if not ac:
+        return 0
+    nstreams = 0
+    for o, kind in _scrub_targets(pdf):
+        try:
+            data = o.read_bytes()
+        except Exception:
+            continue
+        if not data or len(data) > 32 << 20:
+            continue
+        low = data.decode("latin-1").lower()
+        edits = []
+        for end, (k, enc, L) in ac.iter(low):
+            start = end - L + 1
+            if enc == "latin-1":
+                pre = low[start - 1] if start > 0 else " "
+                post = low[end + 1] if end + 1 < len(low) else " "
+                if pre.isalnum() or post.isalnum():
+                    continue
+            ent = base.entries.get(k)
+            if ent is None:
+                continue
+            raw = data[start:end + 1]
+            try:
+                text = raw.decode(enc)
+                alias = base._render_entry(ent, text)
+                nb = alias.encode(enc)
+            except Exception:
+                continue
+            if nb != raw and len(nb) == len(raw):
+                edits.append((start, end + 1, nb))
+        if not edits:
+            continue
+        edits.sort()
+        buf = bytearray(data)
+        last = -1
+        n = 0
+        for a, b, nb in edits:
+            if a < last:
+                continue
+            buf[a:b] = nb
+            last = b
+            n += 1
+        try:
+            o.write(zlib.compress(bytes(buf)), filter=Name("/FlateDecode"))
+            if "/DecodeParms" in o:
+                del o["/DecodeParms"]
+        except Exception:
+            continue
+        nstreams += 1
+        counts["scrub_" + kind] = counts.get("scrub_" + kind, 0) + n
+    counts["scrub_streams"] = nstreams
+    return nstreams
+
+
+
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e22"
+    version = "2e23"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -2052,6 +2186,11 @@ class PdfAdapter(Adapter):
                     notes.append(f"attachment rewrite failed: {type(e).__name__}")
             counts["attachments_rewritten"] = na
             changed += na
+            # 5b. plan values inside font programs, ICC profiles and other non-content streams
+            try:
+                changed += scrub_nontext_streams(pdf, plan, counts)
+            except Exception as e:
+                notes.append(f"stream scrub failed: {type(e).__name__}")
             # 6. OCR of raster images (DEID_PDF_OCR: auto (default) | all | 0)
             ocr_mode = os.environ.get("DEID_PDF_OCR", "auto")
             if ocr_mode == "1":
