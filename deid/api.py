@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, Callable, Iterable, Optional, Protocol, runtime_checkable
 
 API_VERSION = "1"
@@ -61,14 +62,14 @@ class FileContext:
     tmp_dir: str = ""               # private scratch directory for this job (outside out/)
     deadline: float = 0.0           # time.monotonic() deadline; adapters doing loops may check it
 
-    @property
+    @cached_property
     def ext(self) -> str:
         """Lower-cased last suffix incl. dot ('' if none). '.gz' for x.tar.gz."""
         base = self.member_name.rsplit("/", 1)[-1]
         i = base.rfind(".")
         return base[i:].lower() if i > 0 else ""
 
-    @property
+    @cached_property
     def member_name(self) -> str:
         """Path inside the innermost container, or the logical path itself."""
         return self.logical_path.rsplit("!/", 1)[-1]

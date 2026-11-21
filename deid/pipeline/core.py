@@ -101,6 +101,7 @@ class Processor:
         self.plan = plan or api.NullPlan()
         self.tmp_root = tmp_root or tempfile.gettempdir()
         self.depth_limit = depth_limit
+        self._scratch = {}
 
     # -- context ------------------------------------------------------------
     def make_ctx(self, logical_path: str, src: str, chain=(), head=None, sha=None) -> tuple:
@@ -115,7 +116,27 @@ class Processor:
         return ctx, head
 
     def _tmpdir(self, ctx):
+        if ctx.container_chain:
+            # members: reuse one scratch dir per nesting depth (mkdtemp/rmtree per member is costly)
+            d = self._scratch.get(len(ctx.container_chain))
+            if d is None or not os.path.isdir(d):
+                d = self._scratch[len(ctx.container_chain)] = tempfile.mkdtemp(prefix="m", dir=self.tmp_root)
+            return d
         return tempfile.mkdtemp(prefix="j", dir=self.tmp_root)
+
+    def _release(self, ctx, d):
+        if ctx.container_chain and self._scratch.get(len(ctx.container_chain)) == d:
+            with os.scandir(d) as it:
+                for e in it:
+                    if e.is_dir(follow_symlinks=False):
+                        shutil.rmtree(e.path, ignore_errors=True)
+                    else:
+                        try:
+                            os.unlink(e.path)
+                        except OSError:
+                            pass
+            return
+        shutil.rmtree(d, ignore_errors=True)
 
     # -- scan ---------------------------------------------------------------
     def scan(self, ctx: FileContext, src: str, head: bytes) -> tuple:
@@ -139,7 +160,7 @@ class Processor:
                     f"{type(e).__name__}: {str(e)[:200]}", time.monotonic() - t0)
         finally:
             if own_tmp:
-                shutil.rmtree(ctx.tmp_dir, ignore_errors=True)
+                self._release(ctx, ctx.tmp_dir)
                 ctx.tmp_dir = ""
 
     def dispatch_scan(self, ctx: FileContext, src: str) -> ScanResult:
@@ -214,7 +235,7 @@ class Processor:
             out["trace"] = traceback.format_exc(limit=6)[-1500:]
         finally:
             if own_tmp:
-                shutil.rmtree(ctx.tmp_dir, ignore_errors=True)
+                self._release(ctx, ctx.tmp_dir)
                 ctx.tmp_dir = ""
         out["seconds"] = time.monotonic() - t0
         return out

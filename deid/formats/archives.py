@@ -21,6 +21,7 @@ import io
 import os
 import shutil
 import stat
+import subprocess
 import struct
 import tarfile
 import time
@@ -751,9 +752,12 @@ def lzw_compress(data: bytes, maxbits: int = 16) -> bytes:
     return bytes(out)
 
 
+_GZIP_BIN = shutil.which("gzip")
+
+
 class CompressAdapter(_StreamAdapter):
     name = "compress"
-    version = "1"
+    version = "2"
     priority = 0
     magics = ("compress",)
     extensions = (".z",)
@@ -762,6 +766,13 @@ class CompressAdapter(_StreamAdapter):
         return ctx.magic == "compress"
 
     def _decompress(self, src, out, budget):
+        if _GZIP_BIN:
+            # gzip(1) decodes .Z in C; our own decoder is the reference fallback
+            with open(src, "rb") as fi, open(out, "wb") as fo:
+                p = subprocess.run([_GZIP_BIN, "-dc"], stdin=fi, stdout=fo, stderr=subprocess.DEVNULL)
+            if p.returncode == 0:
+                budget.add(os.path.getsize(out))
+                return
         with open(src, "rb") as f:
             data = f.read()
         res = lzw_decompress(data)
@@ -778,7 +789,12 @@ class CompressAdapter(_StreamAdapter):
     def verify(self, ctx, src, dst, plan):
         try:
             with open(dst, "rb") as f:
-                lzw_decompress(f.read())
+                data = f.read()
+            if _GZIP_BIN:
+                p = subprocess.run([_GZIP_BIN, "-dc"], input=data, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
+                return VerifyResult(p.returncode == 0, [] if p.returncode == 0 else ["gzip -d failed"])
+            lzw_decompress(data)
             return VerifyResult(True)
         except Exception as e:
             return VerifyResult(False, [type(e).__name__])
