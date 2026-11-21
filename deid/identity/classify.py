@@ -146,6 +146,9 @@ def _domain_ok(d: str) -> bool:
         return False
     if "." not in d or not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,12}", d):
         return False
+    from .plan import is_infra_domain
+    if is_infra_domain(d):
+        return False
     for p in PROTECTED_DOMAINS + INFRA_DOMAINS:
         if d == p or d.endswith("." + p):
             return False

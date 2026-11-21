@@ -103,8 +103,11 @@ class Builder:
         for l in reg.split(".")[1:]:
             keep.add(l)
         keep = tuple(sorted(norm_token(k) for k in keep))
+        from .plan import is_infra_domain, HOSTING_SUFFIXES
+        if is_infra_domain(host):
+            return
         self.add(host, "domain", EXACT, keep, origin)
-        if reg != host.lower():
+        if reg != host.lower() and reg not in HOSTING_SUFFIXES and not is_infra_domain(reg):
             self.add(reg, "domain", EXACT, keep, origin)
         for lab in (labels[:-1] if label_flex else []):
             if lab.lower() in HOST_GENERIC:

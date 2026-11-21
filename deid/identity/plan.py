@@ -137,6 +137,8 @@ class IdentityPlan:
                 old.keep = tuple(sorted(set(old.keep) & set(e.keep)))
                 old.count += e.count
                 old.sources = max(old.sources, e.sources)
+        for k in [k for k, e in self.entries.items() if e.kind == "domain" and is_infra_domain(e.value)]:
+            del self.entries[k]
         # A domain whose registrable part is also a project/account name ('step.parts'
         # as repo name and as web site) renders that part like the name: no kept TLD.
         for e in list(self.entries.values()):
@@ -212,7 +214,7 @@ class IdentityPlan:
         def sub(m):
             t = m.group(0)
             k = norm_token(t)
-            if k in keep or len(k) <= 1 or k in ORG_DESIGNATORS:
+            if k in keep or len(k) <= 1 or k in ORG_DESIGNATORS or k in HOST_KEEP_TOKENS:
                 return t
             a = self._token_alias(k)
             if len(a) != len(t):
@@ -225,7 +227,8 @@ class IdentityPlan:
         separators, possibly with tokens glued together)."""
         alias_chars = []
         for t in entry.tokens:
-            if t in entry.keep or len(t) <= 1 or (t in ORG_DESIGNATORS and len(entry.tokens) > 1):
+            if (t in entry.keep or len(t) <= 1 or t in HOST_KEEP_TOKENS
+                    or (t in ORG_DESIGNATORS and len(entry.tokens) > 1)):
                 alias_chars.append(t)
             else:
                 alias_chars.append(self._token_alias(t))
@@ -412,7 +415,7 @@ class IdentityPlan:
 
     def _domain_protected(self, dom: str) -> bool:
         d = dom.lower().rstrip(".")
-        for p in PROTECTED_DOMAINS:
+        for p in PROTECTED_DOMAINS + INFRA_DOMAINS:
             if d == p or d.endswith("." + p):
                 return True
         return False
@@ -571,6 +574,33 @@ HOSTING_SUFFIXES = ("wordpress.com", "blogspot.com", "github.io", "gitlab.io", "
                     "squarespace.com", "tumblr.com", "medium.com", "substack.com", "co.uk", "ac.uk", "org.uk",
                     "com.au", "edu.au", "co.jp", "ac.jp", "com.cn", "edu.cn", "edu.tr", "ac.in", "co.in", "ac.at",
                     "ac.be", "ac.il", "co.il", "com.br", "com.tw", "edu.tw", "co.nz", "ac.nz", "co.kr", "ac.kr")
+
+# Public infrastructure: code/model hosting, package indexes, CDNs, social sites.
+INFRA_DOMAINS = (
+    "github.com", "gitlab.com", "bitbucket.org", "githubusercontent.com",
+    "grabcad.com", "thingiverse.com", "printables.com", "cults3d.com", "myminifactory.com", "instructables.com",
+    "hackaday.io", "hackaday.com", "youtube.com", "youtu.be", "twitter.com", "x.com", "facebook.com",
+    "instagram.com", "linkedin.com", "reddit.com", "discord.gg", "discord.com", "pypi.org", "pythonhosted.org",
+    "npmjs.com", "jsdelivr.net", "unpkg.com", "cloudflare.com", "amazonaws.com", "googleusercontent.com",
+    "gstatic.com", "shields.io", "readthedocs.io", "readthedocs.org", "zenodo.org", "doi.org", "orcid.org",
+    "wikipedia.org", "wikimedia.org", "archive.org", "google.com", "drive.google.com", "dropbox.com",
+    "onedrive.live.com", "sharepoint.com", "box.com", "mega.nz", "wetransfer.com",
+)
+HOST_KEEP_TOKENS = {"github", "gitlab", "bitbucket", "githubusercontent", "grabcad", "thingiverse", "sourceforge",
+                    "www", "http", "https"}
+
+
+def is_infra_domain(d: str) -> bool:
+    d = d.lower().strip(".")
+    if d.startswith(("schemas.", "schema.", "ns.", "xmlns.")):
+        return True
+    if d in HOSTING_SUFFIXES:
+        return True  # bare platform suffix; '<user>.github.io' stays identifying
+    for p in PROTECTED_DOMAINS + INFRA_DOMAINS:
+        if d == p or d.endswith("." + p):
+            return True
+    return False
+
 
 GENERIC_MAILBOXES = {"info", "noreply", "no reply", "support", "sales", "contact", "admin", "webmaster",
                      "postmaster", "office", "mail", "service", "help", "hello", "team"}
