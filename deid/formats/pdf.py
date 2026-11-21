@@ -1768,6 +1768,28 @@ _E16_OWNER_END = re.compile(r"(?i)(?:property of(?: the)?|sole property of(?: th
                             r"propriedade d[aeo]s?)\s*[:,]?$")
 
 
+_E16_FORCE = set("echelle échelle scala nom titre massstab maßstab".split())
+
+
+def _e16_canon(tok: str) -> str:
+    """Case/accent/ß-insensitive key: MASSSTAB, Maßstab and massstab share one alias."""
+    import unicodedata
+    k = unicodedata.normalize("NFKD", tok.casefold())
+    return "".join(ch for ch in k if not unicodedata.combining(ch))
+
+
+def _e16_alias(plan, tok: str) -> str:
+    key = _e16_canon(tok)
+    if any("\u2e80" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" or "\u3040" <= ch <= "\u30ff" for ch in key):
+        return plan._render_tokens(tok)
+    a = plan._token_alias(key)
+    if tok.isupper():
+        return a.upper()
+    if tok[:1].isupper():
+        return a[:1].upper() + a[1:]
+    return a
+
+
 def _e16_foreign_tokens(t: str) -> list:
     """Title-block cell tokens that an English-centric extractor would not know: not an English
     dictionary word, no digits, not a unit/material/abbreviation (Benennung, Maßstab, Fecha, 设计)."""
@@ -1778,7 +1800,7 @@ def _e16_foreign_tokens(t: str) -> list:
         if any(ch.isdigit() for ch in tok) or len(tok) < (2 if cjk else 3) or len(set(tok.lower())) == 1:
             continue
         tl = tok.lower()
-        if not cjk and (is_word(tl) or tl in _E5_ENG_WORDS or tl in _E5_FUNC or tl in _E16_EN_ABBR):
+        if not cjk and tl not in _E16_FORCE and (is_word(tl) or tl in _E5_ENG_WORDS or tl in _E5_FUNC or tl in _E16_EN_ABBR):
             continue
         out.append(tok)
     return out
@@ -1794,11 +1816,13 @@ def _e16_tb_page(W, H, lines) -> bool:
     """A drawing sheet: at least two title-block label cells in the bottom-right region."""
     if not W or not H:
         return False
-    n = 0
+    n_br = n_any = 0
     for x0, y0, x1, y1, t in lines:
-        if x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 40 and _E16_TB_LABELS.search(t):
-            n += 1
-            if n >= 2:
+        if len(t) <= 40 and _E16_TB_LABELS.search(t):
+            n_any += 1
+            if x0 > 0.45 * W and y0 > 0.55 * H:
+                n_br += 1
+            if n_br >= 2 or n_any >= 3:
                 return True
     return False
 
@@ -1821,7 +1845,10 @@ def e5_from_pages(pages, plan):
                 cands.append(m.group(1))
             if os.environ.get("DEID_PDF_E14", "1") == "1":
                 cands.extend(e14_candidates(t))
-            if e16_on and tbp[pno] and x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 80:
+            # drawing sheets: every title-block-like cell (short line anywhere: title blocks sit in any
+            # corner, revision tables and stamps too) and longer lines in the bottom-right block
+            if e16_on and tbp[pno] and ((len(t) <= 40 and len(t.split()) <= 5) or
+                                        (x0 > 0.45 * W and y0 > 0.55 * H and len(t) <= 80)):
                 cands.extend(("\x00tok", tok) for tok in _e16_foreign_tokens(t))
             if os.environ.get("DEID_PDF_E16", "1") == "1":
                 if _E16_OWNER_END.search(t):
@@ -1857,7 +1884,7 @@ def e5_from_pages(pages, plan):
             try:
                 if plan.replace_text(tok) != tok:
                     continue
-                a = plan._render_tokens(tok)
+                a = _e16_alias(plan, tok)
             except Exception:
                 continue
             if a and a != tok:
