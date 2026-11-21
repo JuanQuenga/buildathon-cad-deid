@@ -94,3 +94,11 @@ def test_prestandard_step(tmp_path, plan):
     sr, rr, vr, out = run_adapter(tmp_path, "step", "s.step", data, plan)
     assert b"('Person Alpha','Room 1'),('Company Beta')" in out
     assert b"@1 = CARTESIAN_POINT ( , 0.0, 0.0, 0.0);" in out
+
+
+def test_step_representation_context_name(tmp_path, plan):
+    sr, rr, vr, out = run_adapter(tmp_path, "step", "e.step", STEP, plan)
+    # complex entity: context identifier is a name (some exporters put the part name there), type is vocabulary
+    data = STEP.replace(b"REPRESENTATION_CONTEXT('Context #1','3D')", b"REPRESENTATION_CONTEXT('Bracket_Main','3D')")
+    sr, rr, vr, out = run_adapter(tmp_path, "step", "f.step", data, plan)
+    assert b"REPRESENTATION_CONTEXT('Part_Gamma','3D')" in out

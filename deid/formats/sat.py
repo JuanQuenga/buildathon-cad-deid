@@ -45,6 +45,20 @@ KIND_BY_RECORD = {
 }
 
 
+# STEP-derived attribute records holding only AP vocabulary (context, roles, dates, status)
+_VOCAB_RECORDS = {"attrib_gssl_step_application_details", "attrib_gssl_step_mech_con_details",
+                  "attrib_gssl_step_des_con_details", "attrib_gssl_step_datetime_details",
+                  "attrib_gssl_step_approval_details", "attrib_gssl_step_cc1_details"}
+_SNAKE = re.compile(rb"^[a-z]+(?:_[a-z]+)+$")
+
+
+def _vocab(base: str, raw: bytes) -> bool:
+    """Format vocabulary that is never passed to the plan."""
+    if base in _VOCAB_RECORDS:
+        return True
+    return base.startswith("attrib_gssl_step") and bool(_SNAKE.match(raw))   # roles: design_owner, creator...
+
+
 def _rtype(line: bytes) -> str:
     t = line.lstrip().split(b" ", 2)
     if not t or not t[0]:
@@ -222,12 +236,12 @@ def _is_sat(head: bytes) -> bool:
         return False
     if _INT.match(head, nl + 1):
         return b"ACIS" in head[:600] or b"#" in head
-    return bool(re.match(rb"(?:-\d+ )?body [$-]?\d", head[nl + 1:nl + 40]))
+    return bool(re.match(rb"(?:-\d+ )?body \$?-?\d", head[nl + 1:nl + 40]))
 
 
 class SatAdapter(Adapter):
     name = "sat"
-    version = "4"
+    version = "5"
     priority = 9
     magics = ()
     extensions = (".sat", ".sab", ".asat")
@@ -265,6 +279,8 @@ class SatAdapter(Adapter):
                     continue
                 rt = _rtype(mm[info:min(info + 200, s)])
                 base = rt.split("-", 1)[0]
+                if _vocab(base, raw):
+                    continue
                 field = f"sat.{base}"
                 if looks_like_reference(val):
                     col.ref(val, ref_kind(val), field)
@@ -308,6 +324,8 @@ class SatAdapter(Adapter):
                         key = (raw, k)
                     else:
                         base = _rtype(mm[info:min(info + 200, s)]).split("-", 1)[0]
+                        if _vocab(base, raw):
+                            continue
                         k = KIND_BY_RECORD.get(base) or ("part_name" if "name" in base else None)
                         key = (raw, k)
                     new = cache.get(key)

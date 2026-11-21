@@ -61,6 +61,8 @@ FIELDS = {
     "PRODUCT_RELATED_PRODUCT_CATEGORY": ("name", "description", "products"),
     "PROPERTY_DEFINITION": ("name", "description", "definition"),
     "DESCRIPTIVE_REPRESENTATION_ITEM": ("name", "description"),
+    "REPRESENTATION_CONTEXT": ("context_identifier", "context_type"),
+    "PARAMETRIC_REPRESENTATION_CONTEXT": ("context_identifier", "context_type"),
     "ADDRESS": ("internal_location", "street_number", "street", "postal_box", "town", "region",
                 "postal_code", "country", "facsimile_number", "telephone_number",
                 "electronic_mail_address", "telex_number"),
@@ -105,6 +107,7 @@ KIND_BY_FIELD = {
     ("PRODUCT_RELATED_PRODUCT_CATEGORY", "name"): "part_name",
     ("PRODUCT_RELATED_PRODUCT_CATEGORY", "description"): "free_text",
     ("DESCRIPTIVE_REPRESENTATION_ITEM", "description"): "free_text",
+    ("REPRESENTATION_CONTEXT", "context_identifier"): "part_name",
 }
 for _a in ("ADDRESS", "PERSONAL_ADDRESS", "ORGANIZATIONAL_ADDRESS"):
     for _f in FIELDS["ADDRESS"]:
@@ -165,7 +168,8 @@ GEOMETRY = {
 # Format-required vocabulary: never passed to the plan (schema names, AP context strings,
 # units, predefined colours, role/status enumerations, timestamps).
 PROTECTED_FIELDS = {("FILE_DESCRIPTION", "implementation_level"), ("FILE_NAME", "time_stamp"),
-                    ("FILE_SCHEMA", "schema_identifiers")}
+                    ("FILE_SCHEMA", "schema_identifiers"), ("REPRESENTATION_CONTEXT", "context_type"),
+                    ("PARAMETRIC_REPRESENTATION_CONTEXT", "context_type")}
 PROTECTED_ENTITIES = {
     "FILE_SCHEMA", "APPLICATION_PROTOCOL_DEFINITION", "APPLICATION_CONTEXT", "CALENDAR_DATE", "LOCAL_TIME",
     "DATE_AND_TIME", "COORDINATED_UNIVERSAL_TIME_OFFSET", "SI_UNIT", "CONVERSION_BASED_UNIT", "NAMED_UNIT",
@@ -176,8 +180,7 @@ PROTECTED_ENTITIES = {
     "PERSON_AND_ORGANIZATION_ROLE", "OBJECT_ROLE", "DOCUMENT_TYPE", "TYPE_QUALIFIER", "PRECISION_QUALIFIER",
     "UNCERTAINTY_MEASURE_WITH_UNIT", "LENGTH_UNIT", "PLANE_ANGLE_UNIT", "SOLID_ANGLE_UNIT", "MASS_UNIT",
     "AREA_UNIT", "VOLUME_UNIT", "TIME_UNIT", "THERMODYNAMIC_TEMPERATURE_UNIT", "RATIO_UNIT",
-    "GLOBAL_UNIT_ASSIGNED_CONTEXT", "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT", "GEOMETRIC_REPRESENTATION_CONTEXT",
-    "REPRESENTATION_CONTEXT", "PARAMETRIC_REPRESENTATION_CONTEXT", "CAMERA_MODEL_D3",
+    "GLOBAL_UNIT_ASSIGNED_CONTEXT", "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT", "CAMERA_MODEL_D3",
     "SURFACE_SIDE_STYLE", "SURFACE_STYLE_FILL_AREA", "SURFACE_STYLE_USAGE", "CURVE_STYLE_FONT",
 }
 
@@ -456,7 +459,7 @@ def _is_ascii_file(path: str) -> bool:
 
 class StepAdapter(Adapter):
     name = "step"
-    version = "5"
+    version = "6"
     priority = 10
     magics = ("step",)
     extensions = (".step", ".stp", ".p21")
