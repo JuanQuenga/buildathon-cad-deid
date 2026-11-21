@@ -165,6 +165,88 @@ def _fg_color(bg):
     return (0, 0, 0) if lum > 127 else (255, 255, 255)
 
 
+_CONF = str.maketrans({"0": "o", "1": "i", "l": "i", "|": "i", "!": "i", "j": "i", "5": "s", "8": "b",
+                       "2": "z", "6": "g", "9": "g", "$": "s", "€": "e", "@": "a"})
+_FUZZY_CACHE = {}
+
+
+def _fnorm(s: str) -> str:
+    s = s.lower().replace("rn", "m").replace("vv", "w").replace("cl", "d")
+    s = re.sub(r"[^0-9a-z|!$@\u00c0-\uffff]", "", s)
+    return s.translate(_CONF)
+
+
+def _fuzzy_index(plan):
+    """normalised compact value -> original value, from the plan's entries
+    (OCR-tolerant lookup).  Empty if the plan exposes no entries."""
+    key = id(plan)
+    if key in _FUZZY_CACHE:
+        return _FUZZY_CACHE[key]
+    idx = {}
+    ents = getattr(plan, "entries", None)
+    if isinstance(ents, dict):
+        for e in ents.values():
+            v = getattr(e, "value", None)
+            if not v or getattr(e, "kind", "") in ("software",):
+                continue
+            k = _fnorm(v)
+            if len(k) >= 5:
+                idx.setdefault(k, v)
+                if len(k) >= 8:
+                    idx.setdefault(("pfx", k[:3]), []).append((k, v))
+    _FUZZY_CACHE.clear()
+    _FUZZY_CACHE[key] = idx
+    return idx
+
+
+def _fuzzy_lookup(acc, idx):
+    """Exact normalised hit, else a near match (one OCR slip per ~8 chars)."""
+    v = idx.get(acc)
+    if v is not None:
+        return v
+    if len(acc) < 8:
+        return None
+    best, bv = 0.0, None
+    for k, val in idx.get(("pfx", acc[:3]), ()):
+        if abs(len(k) - len(acc)) > max(1, len(k) // 8):
+            continue
+        r = difflib.SequenceMatcher(None, k, acc, autojunk=False).ratio()
+        if r > best:
+            best, bv = r, val
+    return bv if best >= 0.9 else None
+
+
+def _fuzzy_edits(ln, plan, idx):
+    """Runs of OCR words whose normalised concatenation matches a plan entry."""
+    out = []
+    toks = [w[5] for w in ln]
+    norm = [_fnorm(t) for t in toks]
+    i = 0
+    while i < len(toks):
+        hit = None
+        acc = ""
+        for j in range(i, min(i + 6, len(toks))):
+            acc += norm[j]
+            if len(acc) >= 5:
+                v = _fuzzy_lookup(acc, idx)
+                if v is not None:
+                    hit = (j, v)
+        if hit is None:
+            i += 1
+            continue
+        j, value = hit
+        new = plan.alias(value) or plan.replace_text(value)
+        if new and new != value:
+            ws = ln[i:j + 1]
+            l = min(w[0] for w in ws)
+            t = min(w[1] for w in ws)
+            r = max(w[0] + w[2] for w in ws)
+            b = max(w[1] + w[3] for w in ws)
+            out.append(((l, t, r, b), new))
+        i = j + 1
+    return out
+
+
 def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
     """Return (new_image or None, regions_replaced)."""
     if TESSERACT is None or img.size[0] * img.size[1] > MAX_PIXELS:
@@ -173,11 +255,14 @@ def redact_image(img, plan, tmp_dir: str = "", min_conf: float = 30.0):
     if not words:
         return None, 0
     edits = []
+    fidx = _fuzzy_index(plan)
     for ln in _lines(words):
         toks = [w[5] for w in ln]
         old = " ".join(toks)
         new = plan.replace_text(old)
         if new == old:
+            if fidx:
+                edits.extend(_fuzzy_edits(ln, plan, fidx))
             continue
         nt = new.split(" ")
         sm = difflib.SequenceMatcher(None, toks, nt, autojunk=False)
