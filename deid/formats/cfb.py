@@ -404,6 +404,16 @@ class CfbAdapter(Adapter):
                         buf[ps.off:ps.off + ps.nbytes] = nb
                         counts["prop_strings"] += 1
                     new = bytes(buf) if buf is not None else None
+                elif (ctx.ext in (".slddrw", ".drwdot") and re.fullmatch(r"PreviewPNG|Preview|Images/Sheet_\d+", name)
+                      and os.environ.get("DEID_IMAGE_OCR", "1") == "1"):
+                    from deid.formats.solidworks import _redact_preview
+                    kind = "Preview" if name == "Preview" else "PreviewPNG"
+                    new = _redact_preview(ctx, kind, data, plan, counts)
+                    if new is not None and len(new) < len(data) and kind == "PreviewPNG":
+                        new = new + b"\x00" * (len(data) - len(new))   # ignored after IEND
+                    if new is not None and len(new) != len(data):
+                        counts["previews_unfit"] = counts.get("previews_unfit", 0) + 1
+                        new = None
                 elif name.endswith("__ZLB") or _SKIP_STREAM.search(name) or len(data) > 64 << 20:
                     continue
                 else:
