@@ -19,6 +19,8 @@ open cascade|open cascade shape model|cad|step|iges|solid|part|part1|assembly|as
 drawing|drawing1|sheet|sheet1|model|document|doc|file|project|desktop|documents|my documents|
 downloads|temp|tmp|appdata|local|roaming|program files|windows|system32|share|shared|
 everyone|staff|wheel|users group|local service|network service|system|
+您的姓名|姓名|用户|微软用户|微软中国|微软|作者|公司|单位|ユーザー|ユーザ|名前|会社|benutzer|usuario|utilisateur|utente|
+administrador|administrateur|amministratore|benutzername|nom|nombre|firma|societe|société|empresa|azienda|
 """.replace("\n", "").split("|") if x.strip()}
 
 # Software / CAD vendors and products.  They appear in format-required or

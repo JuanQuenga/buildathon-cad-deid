@@ -190,20 +190,10 @@ class Builder:
 
     # ---------------------------------------------------------------- scan DB
     def from_scan_db(self, db):
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        q = """select kind, field, value, count(*) n, count(distinct path) f from observations
-               group by kind, field, value"""
-        agg = collections.defaultdict(lambda: [0, 0, set()])
-        for kind, fld, value, n, f in con.execute(q):
-            if value is None:
-                continue
-            a = agg[(kind, value)]
-            a[0] += n
-            a[1] += f
-            a[2].add(fld)
-        for (kind, value), (n, f, fields) in agg.items():
-            self._observation(kind, value, n, f, fields)
-        con.close()
+        """Adapter observations, filtered by the same evidence rules as discovery."""
+        from .classify import classify, read_scan_db
+        for r in classify(read_scan_db(db), trust_fields=True):
+            self._observation(r["kind"], r["value"], r["files"], r["files"], set(r["fields"]), "scan")
 
     def _observation(self, kind, value, n, f, fields, origin="scan"):
         v = value.strip()

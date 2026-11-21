@@ -59,6 +59,18 @@ EXTRA_PLACEHOLDERS = {norm_key(x) for x in (
     "owner", "admin", "administrator", "public", "default", "all users", "guest", "dev", "devel",
     "ubuntu", "pi", "runner", "vagrant", "docker", "build", "builder", "jenkins", "travis", "appveyor",
 )}
+TITLEBLOCK_STOP = {norm_key(x).replace(" ", "") for x in (
+    "appv'd appvd approved appr chk'd chkd checked chk drawn drn dwn designed dsgn mfg q.a qa signature sign "
+    "name date scale title sheet rev revision material finish weight mass dwg no size qty unless otherwise "
+    "specified tolerances tolerance dimensions dimension inches mm third angle projection do not scale "
+    "drawing part number description item comments notes eng engineer by of a b c d the and for "
+    "ok yes no n/a tbd see note general"
+).split()}
+VENDOR_TOKENS = {"solidworks", "dassault", "systèmes", "systemes", "autodesk", "ptc", "siemens", "microsoft",
+                 "adobe", "spatial", "parasolid", "catia", "inventor", "creo", "onshape", "freecad", "kicad"}
+DATE_LIKE = re.compile(r"\d{1,2}:\d{2}|\d+\s*[年月日]|\b(19|20)\d\d[-/.]\d\d?[-/.]\d\d?\b|"
+                       r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|"
+                       r"march|april|june|july|august|september|october|november|december)\b.*\d", re.I)
 URL_IN = re.compile(r"(?i)\bhttps?://([^/\s]+)(/[^\s]*)?")
 
 
@@ -70,11 +82,30 @@ def _ok_value(v: str) -> bool:
         return False
     if len(v) > 80 or "�" in v:
         return False
+    toks = k.split()
+    if set(toks) & VENDOR_TOKENS or k.replace(" ", "") in TITLEBLOCK_STOP or set(toks) <= TITLEBLOCK_STOP:
+        return False
+    if DATE_LIKE.search(v):
+        return False
     if set(k.split()) <= {"person", "first", "last", "name", "organization", "organisation", "id",
                           "unspecified", "none", "unknown", "author", "user", "company"}:
         return False
     letters = sum(ch.isalpha() for ch in v)
     return letters >= 2
+
+
+def _name_like(v: str) -> bool:
+    """Value next to a title-block label: accept person-name shapes only."""
+    from .vocab import is_plain_token
+    toks = re.findall(r"[^\W\d_]+", v)
+    if (not toks or len(toks) > 4 or norm_key(v).replace(" ", "") in TITLEBLOCK_STOP
+            or any(norm_key(t) in TITLEBLOCK_STOP and len(t) > 1 for t in toks)):
+        return False
+    if re.search(r"\d", v):
+        return False
+    if len(toks) == 1:
+        return len(toks[0]) >= 3 and not is_plain_token(toks[0])
+    return True
 
 
 def _domain_ok(d: str) -> bool:
@@ -87,7 +118,7 @@ def _domain_ok(d: str) -> bool:
     return True
 
 
-def classify(paths_obs):
+def classify(paths_obs, trust_fields=False):
     """paths_obs: iterable of (path, [(kind, field, value, ev), ...]).  Returns rows."""
     agg = collections.defaultdict(lambda: [set(), set(), collections.Counter()])
 
@@ -111,7 +142,9 @@ def classify(paths_obs):
                 if _domain_ok(v):
                     add(v.lower(), "domain", path, field)
                 continue
-            if kind in ("person", "company", "account") and ID_FIELDS.search(field):
+            if kind in ("username", "organization", "organisation"):
+                kind = "account" if kind == "username" else "company"
+            if kind in ("person", "company", "account") and (trust_fields or ID_FIELDS.search(field)):
                 mu = URL_IN.search(v)
                 if mu:  # author given as URL: the account in a code-hosting URL is the identity
                     host, rest = mu.group(1).lower(), (mu.group(2) or "")
@@ -125,7 +158,7 @@ def classify(paths_obs):
                 # "DOMAIN\\user (MACHINE)" style
                 for part in re.split(r"[\\]|\s*\(|\)", v):
                     part = part.strip()
-                    if part and _ok_value(part):
+                    if part and _ok_value(part) and (".label." not in field or _name_like(part)):
                         add(part, kind, path, field)
     rows = []
     for (value, kind), (files, sources, fields) in agg.items():
@@ -133,6 +166,34 @@ def classify(paths_obs):
                      "fields": dict(fields.most_common(5))})
     rows.sort(key=lambda r: (-r["files"], r["value"]))
     return rows
+
+
+def read_scan_db(db):
+    """Stream (path, obs) from the pipeline scan DB (deid/api Observation rows)."""
+    import sqlite3
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    cur = con.execute("select path, kind, field, value from observations "
+                      "where kind in ('person','company','organization','account','username','email','domain','url') "
+                      "order by path")
+    last, buf = None, []
+    for path, kind, field, value in cur:
+        if value is None:
+            continue
+        if path != last and buf:
+            yield last, buf
+            buf = []
+        last = path
+        if kind == "url":
+            m = URL_IN.search(value)
+            if m:
+                buf.append(("domain", field, m.group(1).lower(), ""))
+            continue
+        if kind in ("account", "username") and not field.startswith(("tar.", "zip.")):
+            field = field  # adapter-asserted account fields
+        buf.append((kind, field, value, ""))
+    if buf:
+        yield last, buf
+    con.close()
 
 
 def read_jsonl(paths):
@@ -148,11 +209,16 @@ def read_jsonl(paths):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="inp", action="append", required=True)
+    ap.add_argument("--in", dest="inp", action="append", default=[])
+    ap.add_argument("--scan-db", action="append", default=[])
     ap.add_argument("--out", required=True)
     ap.add_argument("--stats")
     args = ap.parse_args(argv)
-    rows = classify(read_jsonl(args.inp))
+    def stream():
+        yield from read_jsonl(args.inp)
+    rows = classify(stream())
+    for db in args.scan_db:
+        rows += [dict(r, origin="scan") for r in classify(read_scan_db(db), trust_fields=True)]
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("# value\tkind\tmode\tkeep\tfiles\tsources\tfields  (PRIVATE)\n")
         for r in rows:
