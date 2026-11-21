@@ -50,9 +50,10 @@ EMAIL_RE = re.compile(
     + _TLDS.upper() + r"))(?![\w-])")
 # user directory in Windows / Unix paths: group(1)=prefix incl separator, group(2)=user
 USERDIR_RE = re.compile(
-    r"(?i)[\\/]{1,2}(?:users|documents and settings|home|export/home)[\\/]{1,2}"
+    r"(?i)(?:^|[\\/]{1,2})(?:users|documents and settings|home|export/home|utilisateurs|benutzer|usuarios|"
+    r"utenti|gebruikers|anv\u00e4ndare|u\u017cytkownicy|uzivatele|\u7528\u6237)[\\/]{1,2}"
     r"([^\\/\x00-\x1f\"'<>|:*?]{1,64}?)(?=[\\/])")
-_USERDIR_HINT = re.compile(r"(?:users|documents and settings|home)[\\/]")  # run on lower()
+_USERDIR_HINT = re.compile(r"(?:users|settings|home|isateurs|benutzer|usuarios|utenti|gebruikers|ndare|kownicy|ivatele|\u7528\u6237)[\\/]")  # on lower()
 HOSTLIKE_RE = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,12}")
 SHA_PIECE_RE = re.compile(r"^[0-9a-f]{12}$")
 VERSION_SUFFIX_RE = re.compile(r"\.\d+$")
@@ -268,25 +269,48 @@ class IdentityPlan:
     def replace_text(self, text: str) -> str:
         if not text:
             return text
-        out = []
-        last = 0
         lw = text.lower()
+        spans = []  # (start, end, replacement)
         for s, e in self.matcher.finditer(text, lw):
             span = text[s:e]
             ent = self._lookup_span(span)
-            if ent is None:
-                continue
-            out.append(text[last:s])
-            out.append(self._render_entry(ent, span))
-            last = e
-        if last:
-            out.append(text[last:])
-            text = "".join(out)
+            if ent is not None:
+                spans.append((s, e, self._render_entry(ent, span)))
+        extra = []
         if "@" in text:
-            text = EMAIL_RE.sub(self._email_sub, text)
+            for m in EMAIL_RE.finditer(text):
+                extra.append((m.start(), m.end(), self._email_sub(m)))
         if _USERDIR_HINT.search(lw):
-            text = USERDIR_RE.sub(self._userdir_sub, text)
-        return text
+            for m in USERDIR_RE.finditer(text):
+                r = self._userdir_sub(m)
+                pre = m.start(1) - m.start(0)
+                extra.append((m.start(1), m.end(1), r[pre:]))
+        if extra:
+            # emails / user dirs win over dictionary hits they contain; a user dir
+            # already covered by a dictionary hit keeps the dictionary alias
+            out = []
+            for s, e, r in extra:
+                inside = [x for x in spans if x[0] >= s and x[1] <= e]
+                covered = any(x[0] <= s and x[1] >= e for x in spans)
+                if covered:
+                    continue
+                if inside or not any(x[0] < e and s < x[1] for x in spans):
+                    spans = [x for x in spans if not (x[0] >= s and x[1] <= e)]
+                    out.append((s, e, r))
+            spans.extend(out)
+            spans.sort()
+        if not spans:
+            return text
+        res = []
+        last = 0
+        for s, e, r in spans:
+            if s < last:
+                continue
+            res.append(text[last:s])
+            res.append(r)
+            last = e
+        res.append(text[last:])
+        return "".join(res)
 
     def replace_bytes(self, data: bytes, encodings=("utf-8",), length_preserving: bool = False) -> bytes:
         """Length is always preserved: every alias has the original's

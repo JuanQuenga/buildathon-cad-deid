@@ -71,6 +71,17 @@ class PlanTests(unittest.TestCase):
         self.assertNotEqual(self.p.replace_text("quuxcorp2"), "quuxcorp2")
         self.assertEqual(self.p.replace_text("abc def"), "abc def")  # FIELD entries not in free text
 
+    def test_no_double_alias(self):
+        # a known identity inside a user directory keeps its dictionary alias
+        a = self.p.replace_text("quuxcorp")
+        r = self.p.replace_text("C:\\Users\\quuxcorp\\Desktop\\x")
+        self.assertEqual(r.split("\\")[2], a)
+        r2 = self.p.replace_text("C:\\Utilisateurs\\Wilhelmina\\x")
+        self.assertNotIn("Wilhelmina", r2)
+        self.assertEqual(self.p.replace_text("myhome/thing/x"), "myhome/thing/x")
+        e = self.p.replace_text("quuxcorp.x@zorblax.example-co.de")
+        self.assertTrue(e.startswith(a + ".x@"))
+
     def test_field_alias(self):
         a = self.p.alias("abc", "account")
         self.assertIsNotNone(a)
