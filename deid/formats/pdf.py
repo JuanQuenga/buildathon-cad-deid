@@ -1674,6 +1674,12 @@ _E14_INST = re.compile(r"(?<![\w])((?:(?:[A-Z][\w’'\-]+|of|de|del|für|fur|di|
 _E14_BY = re.compile(r"(?<![\w])(?:By|BY|Von|VON|Por|POR|Par|PAR|Author|Autor|Auteur)[:\s]+((?:[A-Z]\.\s?){0,3}[A-Z][A-Za-zà-ÿ'’\-]{1,20}(?:\s[A-Z][A-Za-zà-ÿ'’\-]{1,20}){0,2})")
 _E14_AMBIG = set("mark max will grant bill frank rose may june art chip dean drew gene guy jack lance miles nick pat ray "
                  "rob robin victor van sky august bob tony".split())
+_E14_PART = set("""
+bolt washer nut screw plate bracket shaft gear housing cover base mount holder spacer pin ring bearing frame motor arm
+link block clamp support rail rod tube pipe spring cap lid panel board wheel pulley belt axle hinge knob handle nozzle
+sheet assembly part drawing view section detail steel aluminium aluminum brass plastic body front back left right top
+bottom side upper lower inner outer main sub new old adapter connector cable box case plug socket switch sensor
+""".split())
 _E14_FUNC = set("of de del für fur di du la des the and y et und".split())
 
 
@@ -1685,7 +1691,9 @@ def _e14_name_ok(first: str, rest: str) -> bool:
     last = toks[-1].rstrip(".")
     if len(last) <= 1 or last.lower() in _E5_ENG_WORDS or last.lower() in _E5_FUNC or last.lower() in _TB_GENERIC:
         return False
-    if (is_word(first.lower()) or first.lower() in _E14_AMBIG) and any(is_word(t.lower().rstrip(".")) for t in toks[1:]):
+    if any(t.lower().rstrip(".") in _E14_PART for t in toks[1:]):
+        return False
+    if first.lower() in _E14_AMBIG and any(is_word(t.lower().rstrip(".")) for t in toks[1:]):
         return False                         # "Mark Holes", "Max Speed"
     return True
 
