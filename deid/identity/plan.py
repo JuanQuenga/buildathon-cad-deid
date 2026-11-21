@@ -120,6 +120,27 @@ def split_ext(name: str):
     return stem, suf
 
 
+_PDF_ONLY_CACHE = None
+
+
+def _pdf_only_keys() -> frozenset:
+    """Entry keys applied only inside PDF text (vendor/domain/label entries whose replacement in model
+    files and file names broke drawing <-> model correspondence). DEID_PDF_ONLY_KEYS = JSON list."""
+    global _PDF_ONLY_CACHE
+    if _PDF_ONLY_CACHE is None:
+        keys = frozenset()
+        f = os.environ.get("DEID_PDF_ONLY_KEYS", "")
+        if f and os.path.exists(f):
+            try:
+                import json as _json
+                with open(f, encoding="utf-8") as fh:
+                    keys = frozenset(_json.load(fh))
+            except Exception:
+                keys = frozenset()
+        _PDF_ONLY_CACHE = keys
+    return _PDF_ONLY_CACHE
+
+
 class IdentityPlan:
     """Implements deid.api.Plan."""
 
@@ -277,8 +298,14 @@ class IdentityPlan:
             self._matcher = Matcher(items)
         return self._matcher
 
+    def _pdf_only_blocked(self, key: str) -> bool:
+        return not getattr(self, "pdf_mode", False) and key in _pdf_only_keys()
+
     def _lookup_span(self, span: str) -> Optional[Entry]:
-        return self.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(span)))
+        key = "".join(norm_token(t) for t in TOKEN_RE.findall(span))
+        if self._pdf_only_blocked(key):
+            return None
+        return self.entries.get(key)
 
     # ------------------------------------------------------------------ API
     def alias(self, value: str, kind: Optional[str] = None) -> Optional[str]:
@@ -301,7 +328,7 @@ class IdentityPlan:
         if k == "url":
             r = self.replace_text(v)
             return r if r != v else None
-        e = self.entries.get("".join(key.split()))
+        e = None if self._pdf_only_blocked("".join(key.split())) else self.entries.get("".join(key.split()))
         if e is not None:
             return self._render_entry(e, v)
         if k in IDENTITY_KINDS:
@@ -479,7 +506,8 @@ class IdentityPlan:
                 elif norm_key(p) in PLACEHOLDERS:
                     out.append(p)
                 else:
-                    ent = self.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(p)))
+                    _k = "".join(norm_token(t) for t in TOKEN_RE.findall(p))
+                    ent = None if self._pdf_only_blocked(_k) else self.entries.get(_k)
                     out.append(self._render_entry(ent, p) if ent else self._render_tokens(p))
             return "__".join(out) + suf
         if bucket == "web" or (not is_file and HOSTLIKE_RE.fullmatch(stem)):
@@ -503,6 +531,15 @@ class IdentityPlan:
         return parent in self._opaque_dirs
 
     def map_top(self, path: str) -> str:
+        # paths never use PDF-only entries (file names must match across formats)
+        prev = getattr(self, "pdf_mode", False)
+        self.pdf_mode = False
+        try:
+            return self._map_top_impl(path)
+        finally:
+            self.pdf_mode = prev
+
+    def _map_top_impl(self, path: str) -> str:
         r = self._map_cache.get(path)
         if r is not None:
             return r
@@ -533,11 +570,29 @@ class IdentityPlan:
         return r
 
     def map_member(self, member: str) -> str:
+        # paths never use PDF-only entries (file names must match across formats)
+        prev = getattr(self, "pdf_mode", False)
+        self.pdf_mode = False
+        try:
+            return self._map_member_impl(member)
+        finally:
+            self.pdf_mode = prev
+
+    def _map_member_impl(self, member: str) -> str:
         parts = member.split("/")
         n = len(parts)
         return "/".join(self._map_component(c, i == n - 1) if c else c for i, c in enumerate(parts))
 
     def map_path(self, logical_path: str) -> str:
+        # paths never use PDF-only entries (file names must match across formats)
+        prev = getattr(self, "pdf_mode", False)
+        self.pdf_mode = False
+        try:
+            return self._map_path_impl(logical_path)
+        finally:
+            self.pdf_mode = prev
+
+    def _map_path_impl(self, logical_path: str) -> str:
         segs = logical_path.split("!/")
         out = [self.map_top(segs[0])]
         for i, s in enumerate(segs[1:], 1):

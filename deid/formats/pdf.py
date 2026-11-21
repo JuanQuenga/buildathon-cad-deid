@@ -1829,7 +1829,7 @@ def _model_values(logical_path: str) -> set:
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e21"
+    version = "2e22"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1938,6 +1938,22 @@ class PdfAdapter(Adapter):
 
     # -- rewrite -------------------------------------------------------
     def rewrite(self, ctx, src_path, dst_path, plan):
+        # PDF text applies the PDF-only plan entries (vendor/domain/label entries kept out of model files
+        # and file names); the flag is process-local and always reset
+        prev = getattr(plan, "pdf_mode", False)
+        try:
+            plan.pdf_mode = True
+        except Exception:
+            pass
+        try:
+            return self._rewrite_impl(ctx, src_path, dst_path, plan)
+        finally:
+            try:
+                plan.pdf_mode = prev
+            except Exception:
+                pass
+
+    def _rewrite_impl(self, ctx, src_path, dst_path, plan):
         counts = {}
         notes = []
         try:
