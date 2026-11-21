@@ -435,6 +435,20 @@ class CfbAdapter(Adapter):
             except OSError:
                 pass
             return RewriteResult(status=COPIED_UNSUPPORTED, notes=[f"in-place stream write failed: {type(e).__name__}"])
+        # files whose last sector is truncated grow when olefile writes a full
+        # sector: cut back to the original size and prove the streams read back
+        osz = os.path.getsize(src_path)
+        if os.path.getsize(dst_path) != osz:
+            with open(dst_path, "r+b") as fh:
+                fh.truncate(osz)
+            try:
+                with self._open(dst_path) as chk:
+                    for path, new in changes.items():
+                        if chk.openstream(list(path)).read() != new:
+                            raise ValueError("stream mismatch after truncation")
+            except Exception as e:
+                os.remove(dst_path)
+                return RewriteResult(status=COPIED_UNSUPPORTED, notes=[f"in-place write not reproducible: {type(e).__name__}"])
         counts["streams_rewritten"] = len(changes)
         return RewriteResult(status=REWRITTEN, counts=counts)
 
