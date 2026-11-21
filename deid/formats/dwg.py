@@ -245,22 +245,26 @@ def compress(data: bytes) -> bytes:
         tokens.append(("lit", data[lit_start:n]))
     # The stream must start with literals of length >= 4 (or a match). Merge.
     if tokens and tokens[0][0] == "lit" and len(tokens[0][1]) < 4:
-        # absorb the following match bytes into the literal run
         acc = bytearray(tokens[0][1])
-        k = 1
-        pos = len(acc)
-        while len(acc) < 4 and k < len(tokens):
-            t = tokens[k]
-            if t[0] == "lit":
-                acc += t[1]
-            else:
-                L, off = t[1], t[2]
-                s = pos - off - 1
-                for q in range(L):
-                    acc.append(acc[s + q])
-            pos = len(acc)
-            k += 1
-        tokens = [("lit", bytes(acc))] + tokens[k:]
+        rest = tokens[1:]
+        while len(acc) < 4 and rest:
+            t0 = rest.pop(0)
+            if t0[0] == "lit":
+                acc += t0[1]
+                continue
+            L, off = t0[1], t0[2]
+            take = min(L, 4 - len(acc))
+            s0 = len(acc) - off - 1
+            for q in range(take):
+                acc.append(acc[s0 + q])
+            left = L - take
+            if left >= (4 if off > 0x3FFE else 3):
+                rest.insert(0, ("match", left, off))
+            elif left:
+                s0 = len(acc) - off - 1
+                for q in range(left):
+                    acc.append(acc[s0 + q])
+        tokens = [("lit", bytes(acc))] + rest
     # coalesce adjacent literal runs
     merged = []
     for tok in tokens:
