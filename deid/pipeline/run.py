@@ -288,7 +288,13 @@ def cmd_rewrite(args):
         scan_ad[p_] = (an, av, sz)
     by_name = {x.name: x for x in api.adapters()}
     rcon = db.results_db(args.work)
-    prev = {p: (k, o, s) for p, k, o, s in rcon.execute("SELECT path, key, out_path, out_size FROM results")}
+    prev = {}
+    for p_, k_, o_, s_, st_, err_ in rcon.execute(
+            "SELECT path, key, out_path, out_size, status, error FROM results"):
+        # resource failures (memory limit, worker crash/timeout) are retried on the next run
+        if st_ == api.FALLBACK_COPY and err_ and (err_.startswith(("MemoryError", "pool:"))):
+            continue
+        prev[p_] = (k_, o_, s_)
     proc = core.Processor(plan=plan)
     todo, deferred, skipped = [], collections.defaultdict(list), 0
     reps = {}
