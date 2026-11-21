@@ -62,6 +62,16 @@ class CreoAdapter(Adapter):
                 refs.append(Reference(name, "other", "creo.header.CMNM#fixedlen"))
             elif k == "DBID" and v not in ("PSA",):
                 nu.add_obs(obs, "free_text", "creo.header.DBID", v, "database id", 0.3)
+        if fp["text"]:
+            # old ASCII Pro/E files: dependency records name the components
+            with open(src_path, "rb") as f:
+                body = f.read(32 << 20)
+            m = re.search(rb"@model_name (\d+) \d+", body)
+            if m:
+                tag = m.group(1)
+                for mm in re.finditer(rb"\n\d+ " + tag + rb" ([A-Za-z0-9_\-\.]{1,80})\r?\n", body):
+                    refs.append(Reference(mm.group(1).decode("latin-1"), "component", "creo.depend.model_name#fixedlen"))
+            refs = nu.dedupe_refs(refs)
         return ScanResult(observations=obs, references=refs, fingerprint=fp)
 
     def rewrite(self, ctx, src_path, dst_path, plan):
