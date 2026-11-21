@@ -1759,6 +1759,9 @@ dwg drg chk chkd appd appv appr apprv qty mfg rev desc dia thk wt ref pos tol st
 id ok mm cm cad cam pdf dxf dwf iso din ansi asme astm gdt ra rz hrc ds dr ck ap eng engr mat matl fin spec specs
 assy sht sz scl dept tel fax www http https com org net inc ltd llc gmbh corp co pty bv ag sa sl srl solidworks
 autocad inventor fusion catia creo freecad onshape solidedge rhino sketchup
+are any can may end per all sub see has had was its our you yes use used new old one two out off own via etc
+but nor yet who why how get got let put set run cut fit hex nut set top req reqd unc unf npt bsp ipt iam idw slddrw
+sldprt sldasm step stp stl igs iges uni bsi jis gost csn nfe une sae api ieee ul ce rohs
 """.split())
 _E16_OWNER_END = re.compile(r"(?i)(?:property of(?: the)?|sole property of(?: the)?|propiedad(?: exclusiva)? de(?: la| el)?|"
                             r"eigentum (?:der|des|von)|propri[ée]t[ée] (?:de|d['’])|propriet[àa] (?:di|della)|propietat de|"
@@ -1772,7 +1775,7 @@ def _e16_foreign_tokens(t: str) -> list:
     out = []
     for tok in TOKEN_RE.findall(t):
         cjk = any("\u2e80" <= ch <= "\u9fff" or "\uac00" <= ch <= "\ud7af" or "\u3040" <= ch <= "\u30ff" for ch in tok)
-        if any(ch.isdigit() for ch in tok) or len(tok) < (2 if cjk else 3):
+        if any(ch.isdigit() for ch in tok) or len(tok) < (2 if cjk else 3) or len(set(tok.lower())) == 1:
             continue
         tl = tok.lower()
         if not cjk and (is_word(tl) or tl in _E5_ENG_WORDS or tl in _E5_FUNC or tl in _E16_EN_ABBR):
