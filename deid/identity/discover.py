@@ -462,7 +462,7 @@ def scan_generic(data: bytes, out, field):
             _obs(out, "domain", field + ".www", b"www." + m.group(1).rstrip(b".").lower())
         for m in USERDIR.finditer(chunk):
             _obs(out, "account", field + ".userdir", m.group(1))
-    if b"\x00" in data[:1 << 20] or len(data) < (1 << 20):
+    if (b"\x00" in data[:1 << 20] or len(data) < (1 << 20)) and len(data) <= (24 << 20):
         for m in U16_RUN.finditer(data):
             s = m.group(0).decode("utf-16-le", "replace").encode("latin-1", "replace")
             for mm in EMAIL.finditer(s):
@@ -531,6 +531,10 @@ def scan_path(fs_path: str, logical: str, max_bytes: int):
     try:
         size = os.path.getsize(fs_path)
         with open(fs_path, "rb") as f:
+            head8 = f.read(8)
+            f.seek(0)
+            if head8.startswith(b"\xd0\xcf\x11\xe0") or head8.startswith(b"PK"):
+                max_bytes = max(max_bytes, 256 << 20)  # containers: metadata can sit anywhere
             if size <= max_bytes:
                 data = f.read()
             else:
