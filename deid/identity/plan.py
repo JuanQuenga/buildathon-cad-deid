@@ -397,9 +397,14 @@ class IdentityPlan:
         labels = dom.split(".")
         out = []
         n = len(labels)
+        low = dom.lower()
+        plat = 0  # trailing labels of a hosting platform suffix (kept)
+        for suf in HOSTING_SUFFIXES:
+            if low.endswith("." + suf):
+                plat = suf.count(".") + 1
         for i, lab in enumerate(labels):
             lk = lab.lower()
-            if i == n - 1 or lk in HOST_GENERIC and (i == 0 or i >= n - 2):
+            if i == n - 1 or lk in HOST_GENERIC or i >= n - plat:
                 out.append(lab)
             else:
                 ent = self.entries.get("".join(norm_token(t) for t in TOKEN_RE.findall(lab)))
@@ -512,6 +517,13 @@ class IdentityPlan:
             "token_aliases": dict(sorted(self._tok.items())),
         }
 
+
+HOSTING_SUFFIXES = ("wordpress.com", "blogspot.com", "github.io", "gitlab.io", "netlify.app", "herokuapp.com",
+                    "s3.amazonaws.com", "cloudfront.net", "sourceforge.net", "sourceforge.io", "googleusercontent.com",
+                    "azurewebsites.net", "pages.dev", "vercel.app", "readthedocs.io", "wixsite.com", "weebly.com",
+                    "squarespace.com", "tumblr.com", "medium.com", "substack.com", "co.uk", "ac.uk", "org.uk",
+                    "com.au", "edu.au", "co.jp", "ac.jp", "com.cn", "edu.cn", "edu.tr", "ac.in", "co.in", "ac.at",
+                    "ac.be", "ac.il", "co.il", "com.br", "com.tw", "edu.tw", "co.nz", "ac.nz", "co.kr", "ac.kr")
 
 GENERIC_MAILBOXES = {"info", "noreply", "no reply", "support", "sales", "contact", "admin", "webmaster",
                      "postmaster", "office", "mail", "service", "help", "hello", "team"}
