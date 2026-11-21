@@ -177,20 +177,22 @@ def cmd_scan(args):
         src = safe_join(args.input, r["path"])
         if not os.path.isfile(src):
             continue
-        _, _, a = _route_head(proc, r["path"], src)
-        cur = (a.version if a else "", a.name if a else "")
         h = have.get(r["path"])
-        if h and not args.force and h[2] != "error" and (h[0], h[1]) == cur and h[3] == r["size"]:
-            skipped += 1
-            continue
+        a = None
+        if h and not args.force and h[2] != "error" and h[3] == r["size"]:
+            # only previously scanned files need routing here (to detect adapter changes)
+            _, _, a = _route_head(proc, r["path"], src)
+            if (h[0], h[1]) == (a.version if a else "", a.name if a else ""):
+                skipped += 1
+                continue
         key = (r["md5"], r["size"]) if r["md5"] and r["size"] > 0 else None
         if key and key in rep_by_md5:
             dups[rep_by_md5[key]].append(r)
             continue
         if key:
             rep_by_md5[key] = r["path"]
-        todo.append((r["path"], {"path": r["path"], "src": src},
-                     core.timeout_for(a, r["size"]) * 1.5 + 30))
+        tmo = core.timeout_for(a, r["size"]) if a else 3600 + r["size"] / (2 * 1024 * 1024)
+        todo.append((r["path"], {"path": r["path"], "src": src}, tmo * 1.5 + 30))
     ndup = sum(len(v) for v in dups.values())
     print(f"scan: {len(rows)} selected, {missing} missing, {skipped} up to date, "
           f"{len(todo)} to scan, {ndup} duplicates reuse a scan", file=sys.stderr, flush=True)
@@ -279,7 +281,12 @@ def cmd_rewrite(args):
                 f.write(f"{a}\t{b}\n")
         return 2
     scon = db.scan_db(args.work)
-    shas = dict(scon.execute("SELECT path, sha256 FROM files WHERE parent IS NULL"))
+    shas, scan_ad = {}, {}
+    for p_, sha_, an, av, sz in scon.execute(
+            "SELECT path, sha256, adapter, adapter_version, size FROM files WHERE parent IS NULL"):
+        shas[p_] = sha_
+        scan_ad[p_] = (an, av, sz)
+    by_name = {x.name: x for x in api.adapters()}
     rcon = db.results_db(args.work)
     prev = {p: (k, o, s) for p, k, o, s in rcon.execute("SELECT path, key, out_path, out_size FROM results")}
     proc = core.Processor(plan=plan)
@@ -291,7 +298,10 @@ def cmd_rewrite(args):
         if not os.path.isfile(src):
             continue
         dst = safe_join(corpus, out_paths[r["path"]])
-        ctx, head, a = _route_head(proc, r["path"], src)
+        si = scan_ad.get(r["path"])
+        a = by_name.get(si[0]) if si else None
+        if not si or si[2] != r["size"] or (si[0] and (a is None or a.version != si[1])):
+            ctx, head, a = _route_head(proc, r["path"], src)   # not (or stale) in the scan DB
         sha = shas.get(r["path"]) or ""
         if not sha:
             sha = core.file_hash(src)
