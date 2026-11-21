@@ -44,6 +44,7 @@ from pikepdf import Name, String, Array, Dictionary, Stream, Operator, ContentSt
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult, Observation,
                       Reference, REWRITTEN, VERIFIED_UNCHANGED, COPIED_UNSUPPORTED, SOURCE_EXCEPTION)
 from deid.formats import _nativeutil as nu
+from deid.identity.aliases import TOKEN_RE
 
 try:  # pdfminer.six (MIT): encodings, glyph names, standard-14 metrics
     from pdfminer.latin_enc import ENCODING as _LATIN_ENC
@@ -1490,9 +1491,149 @@ def local_titleblock_identities(src_path, plan):
 
 
 
+# ---------------------------------------------------------------------------
+# E5: naive title-block cells + boilerplate/vendor strings (what a simple title-block extractor
+# would list for a drawing). Values get the plan's token pseudonyms (deterministic, so the same
+# string gets the same pseudonym in every PDF); numbers, dimensions, materials and units are kept.
+# ---------------------------------------------------------------------------
+_E5_CJK_LABELS = re.compile(r"^(?:设\s*计|审\s*核|批\s*准|制\s*图|校\s*对|工\s*艺|标\s*准\s*化|绘\s*图|审\s*定|会\s*签|"
+                            r"名\s*称|图\s*号|零件名称|单\s*位|公司|设计者|制图人|审核人|批准人|责任人|作\s*者|"
+                            r"设計|審核|批准|製図|検図|承認|設計|図番|品名|担当|作成|確認)\s*[:：]?$")
+_E5_SKIP_LABEL = re.compile(r"(?i)\b(scale|ma(?:ß|ss)stab|escala|[ée]chelle|scala|date|datum|fecha|data|sheet|blatt|hoja|"
+                            r"feuille|foglio|rev|revision|material|werkstoff|mat[ée]riau|materiale|weight|gewicht|peso|"
+                            r"masse|mass|finish|oberfl[äa]che|acabado|tolerance|toleranz|tolerancia|size|format|"
+                            r"qty|quantity|menge|cantidad|units?|einheit|projection|projektion|treatment|coating|"
+                            r"hardness|h[äa]rte|比例|材料|重量|日期|数量|共|第|张|版本)\b")
+_E5_ENG_WORDS = set("""
+steel stainless aluminium aluminum alu brass copper bronze iron cast titanium abs pla petg nylon pom delrin acetal
+acrylic pmma polycarbonate ptfe teflon peek rubber silicone wood plywood mdf plastic glass carbon fibre fiber
+stahl edelstahl messing kupfer guss acero aluminio latón laton inox acier laiton bois madera kunststoff
+anodized anodised anodizado eloxiert painted zinc plated galvanized galvanised chrome nickel black natural
+mm cm inch inches none n/a na tbd general first third angle projection metric imperial iso din ansi
+a0 a1 a2 a3 a4 a5 sheet of de von scale
+""".split())
+_E5_FUNC = set("""
+the by of and or to in on at for a an is be as it no not with from this that de la el los las del en y o
+der die das und von zu im am mit le les et du des un une il di e da do dos em por para
+""".split())
+_E5_VENDORS = ["molex", "te connectivity", "mcmaster-carr", "mcmaster carr", "mcmaster", "texas instruments",
+               "nexperia", "digi-key", "digikey", "mouser", "misumi", "igus", "festo", "bosch rexroth", "hiwin",
+               "maxon motor", "faulhaber", "analog devices", "microchip technology", "stmicroelectronics",
+               "infineon", "vishay", "murata", "würth elektronik", "wurth elektronik", "amphenol", "harting",
+               "phoenix contact", "weidmüller", "weidmuller", "keysight technologies", "keysight", "4d systems",
+               "hammond manufacturing", "adafruit", "sparkfun", "pololu", "seeed studio", "on semiconductor",
+               "onsemi", "nxp semiconductors", "rohm semiconductor", "diodes incorporated", "littelfuse",
+               "bourns", "kemet", "panasonic", "omron", "schneider electric", "siemens", "norelem", "ganter",
+               "kipp", "item industrietechnik", "boschrexroth", "openbuilds", "ooznest", "lulzbot", "prusa research"]
+_E5_VENDOR_RX = re.compile(r"(?<![\w])(" + "|".join(re.escape(v).replace(r"\ ", r"[\s\-]?") for v in
+                                                   sorted(_E5_VENDORS, key=len, reverse=True)) + r")(?![\w])", re.I)
+_E5_BOILER = [
+    re.compile(r"(?i)(?:property of|propiedad de|propri[ée]t[ée] (?:de|d['’])|eigentum (?:der|des|von)|propriet[àa] (?:di|della)|"
+               r"propietat de|propriedade d[aeo]s?)\s+(?:the\s+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\band\b|\bis\b|\bunless\b|\bany\b|\by\b|\bet\b|\bund\b|\be\b))"),
+    re.compile(r"(?i)(?:©|\(c\)|copyright)\s*(?:\(c\)\s*)?(?:\d{4}(?:\s*[-–,]\s*\d{2,4})*\s*)?(?:by\s+)?([^\W\d][^.,;:()\n]{1,60}?)(?=\s*(?:[.,;:()]|$|\ball rights\b|\bunless\b|\d))"),
+    re.compile(r"(?i)\b(all rights reserved|alle rechte vorbehalten|todos los derechos reservados|tous droits r[ée]serv[ée]s)\b"),
+    re.compile(r"(?i)(<?\s*(?:insert\s+)?(?:your\s+)?company(?:\s+name)?(?:\s+here)?\s*>?)"),
+]
+
+
+def _e5_label(t: str):
+    t = t.strip()
+    if not t or len(t) > 40:
+        return None
+    if _E5_CJK_LABELS.match(t):
+        return "person"
+    if _E5_SKIP_LABEL.search(t) and not _label_kind(t):
+        return "skip"
+    return _label_kind(t)
+
+
+def _e5_value_ok(v: str) -> bool:
+    v = v.strip()
+    if not (2 <= len(v) <= 60) or any(ch.isdigit() for ch in v):
+        return False
+    toks = TOKEN_RE.findall(v)
+    if not toks or not any(any(ch.isalpha() for ch in t) for t in toks):
+        return False
+    if all(t.lower() in _E5_ENG_WORDS or t.lower() in _E5_FUNC or len(t) <= 1 for t in toks):
+        return False
+    if len(toks) > 4:
+        return False                  # sentences and legal text are not cell values
+    return True
+
+
+def _e5_render(plan, v: str) -> Optional[str]:
+    def sub(m):
+        t = m.group(0)
+        if any(ch.isdigit() for ch in t) or t.lower() in _E5_ENG_WORDS:
+            return t
+        return plan._render_tokens(t)
+    try:
+        r = TOKEN_RE.sub(sub, v)
+    except Exception:
+        return None
+    return r if r != v and len(r) == len(v) else None
+
+
+def e5_identities(src_path, plan):
+    """{value: pseudonym}: (a) the cell to the right of / below every label-like cell of a person,
+    company, project, part-name, document-number, contact or address label in any of our languages
+    (CJK title blocks included), even when that neighbour is itself a label word - the same rule a
+    naive title-block extractor applies; "LABEL: value" on one line too. (b) boilerplate owner strings:
+    "property of X", "© X", "All rights reserved", company placeholders, component vendor names."""
+    if os.environ.get("DEID_PDF_E5", "1") != "1":
+        return {}
+    try:
+        pages = _bbox_lines(src_path, max_pages=8)
+    except Exception:
+        return {}
+    cands = []
+    for W, H, lines in pages:
+        for i, (x0, y0, x1, y1, t) in enumerate(lines):
+            t = " ".join(t.split())
+            if not t:
+                continue
+            for rx in _E5_BOILER:
+                for m in rx.finditer(t):
+                    cands.append(m.group(1).strip())
+            for m in _E5_VENDOR_RX.finditer(t):
+                cands.append(m.group(1))
+            # LABEL: value on one line
+            m = re.match(r"^(.{2,30}?)\s*[:：]\s*(.{2,60})$", t)
+            if m and _e5_label(m.group(1)) not in (None, "skip"):
+                cands.append(m.group(2))
+            k = _e5_label(t) or _e5_label(t.rstrip(":："))
+            if k in (None, "skip"):
+                continue
+            lh = max(y1 - y0, 1.0)
+            right, below = [], []
+            for j, (a0, b0, a1, b1, tt) in enumerate(lines):
+                if j == i or not tt.strip():
+                    continue
+                if abs(b0 - y0) < 0.6 * lh and a0 >= x1 - 1 and a0 - x1 < 30 * lh:
+                    right.append((a0 - x1, tt))
+                elif 0 <= b0 - y1 < 2.5 * lh and a0 < x1 and a1 > x0 - 2 * lh:
+                    below.append((b0 - y1, tt))
+            for _, tt in sorted(right)[:2] + sorted(below)[:1]:
+                cands.append(" ".join(tt.split()))
+    out = {}
+    for v in cands:
+        v = v.strip().strip(":：;,")
+        if v in out or not _e5_value_ok(v):
+            continue
+        try:
+            if plan.replace_text(v) != v:
+                continue                     # the plan already maps it (existing mapping wins)
+        except Exception:
+            continue
+        a = _e5_render(plan, v)
+        if a:
+            out[v] = a
+    return out
+
+
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e4"
+    version = "2e5"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -1610,10 +1751,10 @@ class PdfAdapter(Adapter):
         except Exception as e:
             return RewriteResult(status=SOURCE_EXCEPTION, notes=[f"unreadable PDF: {type(e).__name__}"])
         children = []
-        extras = local_titleblock_identities(src_path, plan)
+        extras = e5_identities(src_path, plan)
         if extras:
             plan = _LocalPlan(plan, extras)
-            counts["local_titleblock_ids"] = len(extras)
+            counts["e5_values"] = len(extras)
         with pdf:
             changed = 0
             # 1. content streams (only pages whose extracted text has an identity)
