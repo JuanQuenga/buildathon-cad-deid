@@ -169,7 +169,9 @@ def _walk(f, encd, visit):
                 i += 2
                 continue
             if code in EDIT_CODES and st.section not in SKIP_SECTIONS and (
-                    st.section == "HEADER" or st.entity not in SKIP_ENTITIES):
+                    st.section == "HEADER" or st.entity not in SKIP_ENTITIES
+                    or (code == 3 and st.entity in ("DICTIONARY", "ACDBDICTIONARYWDFLT")
+                        and (b"\\" in lines[i + 1] or b"/" in lines[i + 1]))):
                 if st.section == "HEADER":
                     if st.var not in HEADER_EDIT_VARS and st.var not in HEADER_NAME_VARS:
                         i += 2
@@ -196,7 +198,7 @@ def _walk(f, encd, visit):
 
 class DxfAdapter(Adapter):
     name = "dxf"
-    version = "1"
+    version = "2"
     priority = 9
     magics = ()
     extensions = (".dxf",)
@@ -274,7 +276,7 @@ class DxfAdapter(Adapter):
                     new = _sanitize_name(new)
             elif st.section == "HEADER" and st.var in HEADER_KIND:
                 new = pc.sub(val, HEADER_KIND[st.var])
-            elif looks_like_reference(val.strip()) and code in (1, 300, 1000):
+            elif looks_like_reference(val.strip()) and code in (1, 3, 300, 1000):
                 new = pc.ref(val)
             else:
                 new = pc.text(val)

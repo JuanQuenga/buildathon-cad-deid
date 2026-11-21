@@ -27,12 +27,14 @@ _TOK = re.compile(
     rb"currentfile\b|eexec\b|<~", re.S)
 _COMMENT_KEYS_PERSON = (b"%%For", b"%%Author", b"%%Routing")
 _SKIP_STARTS = (b"%%BeginData", b"%%BeginBinary", b"%%BeginPreview", b"%%BeginPhotoshop",
-                b"%BeginPhotoshop", b"%%BeginICCProfile", b"%ImageData", b"%AI9_PrivateDataBegin",
-                b"%%BeginDocument")
+                b"%BeginPhotoshop", b"%%BeginICCProfile", b"%ImageData", b"%AI9_DataStream",
+                b"%AI12_CompressedData", b"%AI24_ZStandard_Data", b"%%BeginDocument")
 _END_FOR = {b"%%BeginData": b"%%EndData", b"%%BeginBinary": b"%%EndBinary", b"%%BeginPreview": b"%%EndPreview",
             b"%%BeginPhotoshop": b"%%EndPhotoshop", b"%BeginPhotoshop": b"%EndPhotoshop",
             b"%%BeginICCProfile": b"%%EndICCProfile", b"%ImageData": b"%%EndData",
-            b"%AI9_PrivateDataBegin": b"%AI9_PrivateDataEnd"}
+            b"%AI9_DataStream": b"%AI9_PrivateDataEnd", b"%AI12_CompressedData": b"%AI9_PrivateDataEnd",
+            b"%AI24_ZStandard_Data": b"%AI9_PrivateDataEnd"}
+_NEXT_DSC = re.compile(rb"[\r\n]%[%A]")
 _ESC = re.compile(rb"\\([nrtbf()\\]|[0-7]{1,3}|\r\n|\n|\r)")
 
 
@@ -83,13 +85,20 @@ def _walk(data: bytes, fn):
     pos = 0
     n = len(data)
     i = 0
+    depth = 0   # procedure brace depth: currentfile/eexec inside {...} is a definition, not data
     while True:
         m = _TOK.search(data, i)
         if m is None:
             break
         s, e = m.span()
+        if s > i:
+            gap = data[i:s]
+            depth = max(0, depth + gap.count(b"{") - gap.count(b"}"))
         tok = m.group(0)
         c = tok[:1]
+        if depth > 0 and tok in (b"currentfile", b"eexec"):
+            i = e
+            continue
         if c == b"%":
             # data regions announced by DSC comments
             for st in _SKIP_STARTS:
@@ -144,9 +153,8 @@ def _walk(data: bytes, fn):
                 continue
             if any(x in data[e:e + 300] for x in (b"image", b"readstring", b"readhexstring", b"filter",
                                                      b"colorimage", b"imagemask", b"readline")):
-                j = data.find(b"\n%%", e)
-                # also stop at a showpage/grestore line terminating the data
-                i = n if j < 0 else j + 1
+                mm = _NEXT_DSC.search(data, e)
+                i = n if mm is None else mm.start() + 1
                 continue
             i = e
             continue
@@ -184,7 +192,7 @@ def _strip_parens(v: bytes):
 
 class PsAdapter(Adapter):
     name = "ps"
-    version = "1"
+    version = "4"
     priority = 10
     magics = ("ps", "eps", "eps_binary")
     extensions = (".ps", ".eps", ".epsf", ".epsi", ".ai")
