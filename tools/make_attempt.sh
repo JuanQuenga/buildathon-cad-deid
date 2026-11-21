@@ -92,12 +92,13 @@ $PY tools/attempt_summary.py --n "$N" --prev "$PREV" --work "$W" --hypothesis "$
     --timing "scan+plan $((T1-T0))s, rewrite $((T2-T1))s, validate $((T3-T2))s, package+md5+diff $((T4-T3))s, total $((T4-T0))s" \
     --preflight "$W/preflight.log" > "$OUT.summary.txt"
 log "done in $((T4-T0))s -> $OUT ; summary: $OUT.summary.txt"
-cat <<EOC
-# upload commands for the coordinator (not run here):
-#  1) server-side copy of everything unchanged since attempt-$PREV (after attempt-$PREV is fully uploaded):
-python3 $REPO/tools/gcs_copy_unchanged.py --from <TEAM_PREFIX>/attempt-$PREV/ --to <TEAM_PREFIX>/attempt-$N/ \\
-    --attempt $OUT --token-file $BASE/work/submit/machina-token.txt --go
-#  2) upload the rest (skips what step 1 copied):
-python3 $BASE/starter/upload.py --dest <TEAM_PREFIX>/attempt-$N/ --corpus $OUT/corpus --code $OUT/code \\
-    --readme $OUT/README.txt --token-file $BASE/work/submit/machina-token.txt
+T=${TEAM_PREFIX:-<TEAM_PREFIX>}
+cat <<EOC | tee "$OUT.push.txt"
+# push commands for attempt-$N (run after attempt-$PREV is fully uploaded; not run here)
+# 1) server-side copy of every object already uploaded in attempt-$PREV (matched by MD5+size, any key):
+python3 $REPO/tools/gcs_copy_unchanged.py --from $T/attempt-$PREV/ --to $T/attempt-$N/ --attempt $OUT --token-file $BASE/work/submit/machina-token.txt --go
+# 2) upload the rest (upload.py skips objects already present with the same MD5):
+python3 $BASE/starter/upload.py --dest $T/attempt-$N/ --corpus $OUT/corpus --code $OUT/code --readme $OUT/README.txt --token-file $BASE/work/submit/machina-token.txt
+# 3) verify before submitting (read-only; complete = "0 copyable server-side; 0 must be uploaded"):
+python3 $REPO/tools/gcs_copy_unchanged.py --from $T/attempt-$PREV/ --to $T/attempt-$N/ --attempt $OUT --token-file $BASE/work/submit/machina-token.txt
 EOC
