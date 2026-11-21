@@ -46,6 +46,9 @@ def _encoding(head: bytes) -> str:
         return "cp1252"
 
 
+_BAD_CTRL = bytes(c for c in range(32) if c < 9 or (13 < c < 32 and c != 27))
+
+
 def _confident_text(head: bytes) -> bool:
     if not head:
         return False
@@ -58,8 +61,7 @@ def _confident_text(head: bytes) -> bool:
     sample = head[:8192]
     if b"\x00" in sample:
         return False
-    bad = sum(1 for c in sample if c < 9 or (13 < c < 32 and c != 27))
-    return bad == 0
+    return len(sample.translate(None, _BAD_CTRL)) == len(sample)   # no control bytes (C speed)
 
 
 def _chunks(path):
