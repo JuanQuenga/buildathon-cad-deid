@@ -278,6 +278,27 @@ def _iter_lp_strings(buf: bytes, min_len: int = 4, max_len: int = 4096):
         i += 1
 
 
+_HEAVY = re.compile(r"<((?:\w+:)?(?:mesh|vertices|triangles|beamlattice|slices?|slicestack))\b[^>]*>.*?</\1>", re.S)
+HEAVY_MIN = 1 << 20
+
+
+def _split_heavy(t: str):
+    """Split large XML into (heavy, text) segments; heavy = mesh/slice payload
+    blocks that hold only numbers and are never edited."""
+    if len(t) < HEAVY_MIN:
+        return [(False, t)]
+    out = []
+    pos = 0
+    for m in _HEAVY.finditer(t):
+        if m.start() > pos:
+            out.append((False, t[pos:m.start()]))
+        out.append((True, m.group(0)))
+        pos = m.end()
+    if pos < len(t):
+        out.append((False, t[pos:]))
+    return out
+
+
 class ZipPackageAdapter(Adapter):
     name = "zippkg"
     version = "1"
@@ -365,6 +386,8 @@ class ZipPackageAdapter(Adapter):
         t, enc = _decode_text(data)
         if not t:
             return
+        if len(t) >= HEAVY_MIN:
+            t = "".join(seg for heavy, seg in _split_heavy(t) if not heavy)
         base = nm.rsplit("/", 1)[-1]
         if kind == "fcstd":
             for m in re.finditer(r'<Property name="(CreatedBy|LastModifiedBy|Company|Comment|License|LicenseURL|'
@@ -511,8 +534,10 @@ class ZipPackageAdapter(Adapter):
         t, enc = _decode_text(data)
         if t is None:
             return None
+        segs = _split_heavy(t)
+        light = "".join(seg for heavy, seg in segs if not heavy)
         # fast path: nothing in this member is known to the plan
-        if plan.replace_text(nu.xml_unescape(t)) == nu.xml_unescape(t):
+        if plan.replace_text(nu.xml_unescape(light)) == nu.xml_unescape(light):
             return None
         keep = set(nu._XML_ATTR_KEEP)
         if kind == "3mf":
@@ -532,7 +557,19 @@ class ZipPackageAdapter(Adapter):
                     return nv
             return nu.sub_value(plan, v)
 
-        nt, n = nu.rewrite_xml_values(t, vf, keep)
+        if len(segs) == 1:
+            nt, n = nu.rewrite_xml_values(t, vf, keep)
+        else:
+            parts, n = [], 0
+            for heavy, seg in segs:
+                if heavy:
+                    parts.append(seg)
+                    continue
+                # segments are cut at tag boundaries, so they are valid fragments
+                ns, k = nu.rewrite_xml_values(seg, vf, keep)
+                parts.append(ns)
+                n += k
+            nt = "".join(parts)
         # FreeCAD external links: file="..." on XLink elements -> map_reference
         if kind == "fcstd":
             def fl(m):
