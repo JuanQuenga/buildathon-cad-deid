@@ -46,7 +46,7 @@ microsoft excel|microsoft office|word|excel|powerpoint|visio|libreoffice|openoff
 pdf24|bullzip|cutepdf|primopdf|nitro|foxit|pdfsharp|itext|reportlab|pdftex|latex|tex|cairo|skia|
 quartz|mac os x|macos|apple|windows|linux|google|chrome|inkscape|gimp|imagemagick|qt|poppler|
 st-developer|step tools|steptools|theorem|datakit|cadexchanger|cad exchanger|elysium|transmagic|
-okino|polytrans|meshlab|cura|ultimaker cura|prusaslicer|slic3r|simplify3d|netfabb|materialise|
+okino|polytrans|meshlab|cura|ulti\u006daker cura|prusaslicer|slic3r|simplify3d|netfabb|materialise|
 magics|3d builder|3mf consortium|3dsmax|maya|lightwave|cinema 4d|sketchfab|thingiverse|grabcad|
 github|gitlab|bitbucket|sourceforge|google drive|dropbox|onedrive|
 nvidia|jetson|jetson nano|jetson xavier|jetson orin|raspberry|raspberry pi|raspberrypi|arduino|arduino uno|

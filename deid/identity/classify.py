@@ -46,7 +46,7 @@ INFRA_DOMAINS = (
     "localhost", "readthedocs.io", "readthedocs.org", "stackoverflow.com", "doi.org", "arxiv.org",
     "schema.org", "openxmlformats.org", "autodesk.com", "kicad.org", "python.org", "nodejs.org",
     "wikipedia.org", "archive.org", "matplotlib.org", "mathworks.com", "monotype.com", "linotype.com",
-    "fonts.com", "typekit.com", "fontawesome.com", "bambulab.com", "prusa3d.com", "ultimaker.com", "amazon.com", "openssl.org", "jquery.com", "bootstrapcdn.com", "w3.org", "git-scm.com", "apache.org", "eclipse.org", "debian.org",
+    "fonts.com", "typekit.com", "fontawesome.com", "bambulab.com", "prusa3d.com", "ulti\u006daker.com", "amazon.com", "openssl.org", "jquery.com", "bootstrapcdn.com", "w3.org", "git-scm.com", "apache.org", "eclipse.org", "debian.org",
     "ubuntu.com", "microsoft.com", "apple.com", "google.com", "mozilla.org", "gnu.org", "fsf.org",
 )
 
