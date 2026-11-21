@@ -88,11 +88,12 @@ Per-format reference update capability:
 
 ## Limitations (what stays unrewritten and why)
 
-- **DWG drawing content.** TEXT, MTEXT and attribute values (title blocks) live in `AcDb:AcDbObjects`: bit-packed objects with a CRC per object. A safe same-length edit there would also need the object map and those CRCs to be recomputed. They are reported to identity but not changed. The preview thumbnail isn't changed either. DWG versions before R2004 and R2007 (`AC1021`) are copied unchanged.
+- **DWG drawing content.** TEXT, MTEXT and attribute values (title blocks) live in `AcDb:AcDbObjects`: bit-packed objects with a CRC per object. A safe same-length edit there would also need the object map and those CRCs to be recomputed. They are reported to identity but not changed. Measured on 120 random input DWGs (decoded with LibreDWG for measurement only), 14 have entity text that contains a plan identity: an estimated ~90 DWGs corpus-wide. The preview thumbnail isn't changed either. DWG versions before R2004 and R2007 (`AC1021`) are copied unchanged.
 - **Creo, CATIA, JT, NX and Parasolid-binary sections** are compressed or checksummed with undocumented schemes. Only the Creo header and U3D strings are edited.
 - **SOLIDWORKS drawing sheet previews** are OCR-redacted only when the re-encoded image fits its span or size. In the sample 2 of 10 matching previews didn't fit and were left unchanged. Part and assembly previews aren't processed.
 - **CFB `__ZLB` streams** (legacy SOLIDWORKS display lists and DWG header copies) aren't modified. A recompressed stream would need a different size.
-- **Fusion 360 zstd members** aren't decoded (no zstd codec in the stdlib of the pinned Python).
+- **Fusion 360 zstd members** aren't decoded (no zstd codec in the stdlib of the pinned Python). That affects about 1 in 8 `.f3d` files (newer Fusion); their deflate members are still processed.
+- **Package members over 512 MB** (one 1.4 GB 3MF model in the input) are copied unchanged.
 - **PDF**: text drawn as vector outlines is covered visually by the OCR overlay, but its path geometry stays in the content stream underneath (it is not text, so text search can't find it). Type3 and vertically written CJK spans with unusual encodings can't be rewritten.
 - **OCR** depends on recognition quality. A misread name isn't matched, so its pixels stay unchanged.
 - **Usability.** No proprietary CAD application was available for reopen tests on Linux. Container-level validation (re-parse, sizes, checksums, CRCs, XML parse) is the acceptance gate.
