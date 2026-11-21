@@ -1253,7 +1253,7 @@ def _ocr_overlay_pages(pdf, src_path, pages, plan, ctx, counts) -> int:
         return 0
     import time
     from PIL import Image
-    dpi = int(os.environ.get("DEID_PDF_OCR_DPI", "150"))
+    dpi = int(os.environ.get("DEID_PDF_OCR_DPI", "200"))
     budget = float(os.environ.get("DEID_PDF_OCR_BUDGET", "30"))
     max_pages = int(os.environ.get("DEID_PDF_OCR_PAGES", "3"))
     t0 = time.monotonic()
@@ -1269,7 +1269,7 @@ def _ocr_overlay_pages(pdf, src_path, pages, plan, ctx, counts) -> int:
             if r.returncode != 0 or not os.path.exists(png):
                 continue
             img = Image.open(png).convert("RGB")
-            edits = _ocr.find_edits(img, plan, d)
+            edits = _ocr.find_edits(img, _local(plan, ocr_extras(img, plan, d)), d)
             if not edits:
                 continue
             page = pdf.pages[pi]
@@ -1746,6 +1746,11 @@ def e5_identities(src_path, plan):
         pages = _bbox_lines(src_path, max_pages=8)
     except Exception:
         return {}
+    return e5_from_pages(pages, plan)
+
+
+def e5_from_pages(pages, plan):
+    """The E5/E5+ rules on positioned lines [(W, H, [(x0, y0, x1, y1, text)])] (text layer or OCR)."""
     cands = []
     for W, H, lines in pages:
         for i, (x0, y0, x1, y1, t) in enumerate(lines):
@@ -1904,9 +1909,94 @@ def e13_extras(ctx, src_path, plan, counts) -> dict:
     return out, stems
 
 
+# ---------------------------------------------------------------------------
+# E15: OCR of text-less pages and their images with the same rules as the text layer (E5/E5+)
+# ---------------------------------------------------------------------------
+def ocr_extras(img, plan, tmp_dir=""):
+    """{value: pseudonym} from the OCR lines of an image, using the text-layer rules."""
+    from deid.formats import _ocr
+    if os.environ.get("DEID_PDF_OCR_RULES", "1") != "1":
+        return {}
+    try:
+        words = [w for w in _ocr.ocr_words(img, tmp_dir=tmp_dir) if w[4] >= 30 or w[4] < 0]
+    except Exception:
+        return {}
+    lines = []
+    for ln in _ocr._lines(words):
+        x0 = min(w[0] for w in ln)
+        y0 = min(w[1] for w in ln)
+        x1 = max(w[0] + w[2] for w in ln)
+        y1 = max(w[1] + w[3] for w in ln)
+        lines.append((x0, y0, x1, y1, " ".join(w[5] for w in ln)))
+    if not lines:
+        return {}
+    try:
+        return e5_from_pages([(img.size[0], img.size[1], lines)], plan)
+    except Exception:
+        return {}
+
+
+def _local(plan, extras):
+    return _LocalPlan(plan, extras) if extras else plan
+
+
+def e15_pdf_images(pdf, plan, ctx, mode="auto", textless_pages=()):
+    """deid.formats._ocr.pdf_images with the text-layer rules applied to each image's OCR lines."""
+    from deid.formats import _ocr
+    if _ocr.TESSERACT is None:
+        return 0
+    import time
+    import zlib
+    from pikepdf import PdfImage
+    max_imgs = int(os.environ.get("DEID_PDF_OCR_MAX", "8"))
+    budget = float(os.environ.get("DEID_PDF_OCR_BUDGET", "45"))
+    t0 = time.monotonic()
+    seen = set()
+    total = done = 0
+    tmp = ctx.tmp_dir if ctx is not None else ""
+    for pi, page in enumerate(pdf.pages):
+        try:
+            xo = page.resources.get("/XObject") or {}
+        except Exception:
+            continue
+        for name, x in list(xo.items()):
+            if done >= max_imgs or time.monotonic() - t0 > budget:
+                return total
+            try:
+                if x.get("/Subtype") != Name("/Image") or x.objgen in seen:
+                    continue
+                seen.add(x.objgen)
+                w, h = int(x.get("/Width", 0)), int(x.get("/Height", 0))
+                if w * h < 40_000 or w * h > _ocr.MAX_PIXELS or x.get("/ImageMask"):
+                    continue
+                if mode == "auto":
+                    shaped = (w >= 2 * h or h >= 2 * w) and w * h <= 3_000_000
+                    if not shaped and pi not in textless_pages:
+                        continue
+                img = PdfImage(x).as_pil_image()
+                done += 1
+                lp = _local(plan, ocr_extras(img, plan, tmp))
+                new, n = _ocr.redact_image(img, lp, tmp)
+                if not n or new is None:
+                    continue
+                if new.mode not in ("RGB", "L"):
+                    new = new.convert("RGB")
+                x.write(zlib.compress(new.tobytes()), filter=Name("/FlateDecode"))
+                x.ColorSpace = Name("/DeviceRGB") if new.mode == "RGB" else Name("/DeviceGray")
+                x.BitsPerComponent = 8
+                for k in ("/DecodeParms", "/Decode"):
+                    if k in x:
+                        del x[k]
+                total += n
+            except Exception:
+                continue
+    return total
+
+
+
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e14"
+    version = "2e15"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
@@ -2121,7 +2211,7 @@ class PdfAdapter(Adapter):
                 try:
                     from deid.formats import _ocr
                     textless = {i for i, t in enumerate(texts or []) if len(t.strip()) < 20}
-                    nocr = _ocr.pdf_images(pdf, plan, ctx, ocr_mode, textless)
+                    nocr = e15_pdf_images(pdf, plan, ctx, ocr_mode, textless)
                     counts["ocr_regions"] = nocr
                     changed += nocr
                     # vector-outline text / scans: overlay pseudonyms on text-less pages
