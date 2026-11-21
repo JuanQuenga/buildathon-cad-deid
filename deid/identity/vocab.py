@@ -21,6 +21,12 @@ downloads|temp|tmp|appdata|local|roaming|program files|windows|system32|share|sh
 everyone|staff|wheel|users group|local service|network service|system|
 您的姓名|未指定|未知|无|匿名|管理员|默认|姓名|用户|微软用户|微软中国|微软|作者|公司|单位|ユーザー|ユーザ|名前|会社|benutzer|usuario|utilisateur|utente|
 administrador|administrateur|amministratore|benutzername|nom|nombre|firma|societe|société|empresa|azienda|
+config|configuration|config control|config control design|configcontroldesign|noname|no_name|nonamed|
+design owner|design_owner|designowner|design supplier|design_supplier|creator|creators|approver|approverid|
+approver id|approver_id|checker|checkerid|checker id|reviewer|drafter|draftsman|authorid|author id|
+ownerid|owner id|designerid|designer id|creatorid|customer|client|vendor|supplier|manufacturer|
+person and organization|person_and_organization|personandorganization|organization role|
+id owner|part owner|creator role|classification officer|security classification|
 """.replace("\n", "").split("|") if x.strip()}
 
 # Software / CAD vendors and products.  They appear in format-required or
