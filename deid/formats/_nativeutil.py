@@ -72,6 +72,11 @@ def same_len_text(plan, value: str, kind: Optional[str] = None, *, pad: str = " 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 URL_RE = re.compile(r"(?:https?|ftp)://[^\s<>\"')\]]+|www\.[A-Za-z0-9\-]+\.[A-Za-z0-9.\-/_%?=&#]+", re.I)
 PHONE_RE = re.compile(r"(?:\+\d{1,3}[\s.\-]?)?(?:\(\d{2,4}\)[\s.\-]?)?\d{2,4}[\s.\-]\d{3,4}[\s.\-]\d{3,4}")
+SCHEMA_URL_RE = re.compile(r"^(?:https?://)?(?:www\.)?(?:schemas\.openxmlformats\.org|schemas\.microsoft\.com|"
+                           r"www\.w3\.org|w3\.org|purl\.org|ns\.adobe\.com|schemas\.slic3r\.org|"
+                           r"schemas\.bambulab\.com|www\.solidworks\.com/(?:sw|config)|openoffice\.org/|"
+                           r"urn:oasis|docs\.oasis-open\.org|xml\.org|iptc\.org/std|"
+                           r"schemas\.autodesk\.com|www\.freecad(?:web)?\.org/?$)", re.I)
 WINPATH_RE = re.compile(r"(?:[A-Za-z]:\\|\\\\)[^\x00-\x1f\"*?<>|]{2,260}")
 USERDIR_RE = re.compile(r"(?:\\|/)(?:Users|Documents and Settings|home)(?:\\|/)([^\\/\x00-\x1f]{1,64})", re.I)
 
@@ -108,7 +113,10 @@ def contact_observations(text: str, field: str, out: list, limit: int = 200) -> 
         if n >= limit:
             return
     for m in URL_RE.finditer(text):
-        out.append(Observation("url", field, m.group(0).rstrip(".,;"), "regex", 0.7)); n += 1
+        u = m.group(0).rstrip(".,;")
+        if SCHEMA_URL_RE.search(u):
+            continue
+        out.append(Observation("url", field, u, "regex", 0.7)); n += 1
         if n >= limit:
             return
     for m in WINPATH_RE.finditer(text):
