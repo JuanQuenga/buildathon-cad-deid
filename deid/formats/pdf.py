@@ -1419,6 +1419,9 @@ def _global_sweep_tokens(plan) -> dict:
     from deid.identity.vocab import is_word
     sp = _spread()
     maxdf = int(os.environ.get("DEID_PDF_SWEEP_GLOBAL_MAXDF", "6"))
+    # software / hardware product names the plan happens to hold as accounts (FreeCAD, Jetson) stay
+    from deid.identity.vocab import SOFTWARE
+    sw = {t for k in SOFTWARE for t in k.split()} - {"ulti\u006daker"}
     g = {}
     for e in getattr(base, "entries", {}).values():
         if getattr(e, "kind", "") not in _SWEEP_KINDS:
@@ -1427,7 +1430,7 @@ def _global_sweep_tokens(plan) -> dict:
             f = _fold(t)
             if len(f) < 4 or any(ch.isdigit() for ch in f) or not f.isalpha():
                 continue
-            if is_word(f) or f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf:
+            if is_word(f) or f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf or f in sw:
                 continue
             g.setdefault(f, norm_token(t) if norm_token(t) == f else f)
     _GLOBAL_SWEEP.clear()
