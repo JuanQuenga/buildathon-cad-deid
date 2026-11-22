@@ -1805,7 +1805,7 @@ _E5_BOILER = [
 
 # Bylines: a line that is only "By NAME" (article / drawing authors, pen names such as 'By GEOMETER'), and
 # "drawing / drawn / designed / written / photos by Name Surname" inside a line.
-_E26_BY_LINE = re.compile(r"^(?:By|BY|by|Von|VON|Por|POR|Par|PAR)[:\s]+((?:[A-Z]\.\s?){0,2}[A-ZÀ-Ý][\w'’\-]{2,20}(?:\s(?:[A-Z]\.\s?)?[A-ZÀ-Ý][\w'’\-]{1,20}){0,2})\.?$")
+_E26_BY_LINE = re.compile(r"^(?:B\s?y\.?|BY\.?|by|Von|VON|Por|POR|Par|PAR)[:\s]+((?:[A-Z]\.\s?){0,2}[A-ZÀ-Ý][\w'’\-]{2,20}(?:\s(?:[A-Z]\.\s?)?[A-ZÀ-Ý][\w'’\-]{1,20}){0,2})\.?$")
 _E26_BY_IN = re.compile(r"(?i:\b(?:drawn|drawing|drawings|designed|design|written|photos?|photographs?|illustrations?|modell?ed|cad)\s+by)[:\s]+"
                         r"((?:[A-Z]\.\s?){0,2}[A-ZÀ-Ý][a-zà-ÿ'’\-]{1,20}(?:\s[A-ZÀ-Ý][a-zà-ÿ'’\-]{1,20}){1,2})")
 _E26_BY_STOP = set("""others other customer client hand default request the a an means machine vendor supplier owner
