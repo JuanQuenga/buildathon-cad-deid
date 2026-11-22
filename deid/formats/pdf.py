@@ -1433,6 +1433,17 @@ def _global_sweep_tokens(plan) -> dict:
             if is_word(f) or f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf or f in sw:
                 continue
             g.setdefault(f, norm_token(t) if norm_token(t) == f else f)
+    # identities discovered by the PDF rules in other documents (two-pass: tools/pdf_global_ids.py)
+    f = os.environ.get("DEID_PDF_GLOBAL_IDS", "")
+    if f and os.path.exists(f):
+        try:
+            import json, gzip
+            with gzip.open(f, "rt", encoding="utf-8") as fh:
+                for k in json.load(fh):
+                    if k not in sw:
+                        g.setdefault(k, k)
+        except Exception:
+            pass
     _GLOBAL_SWEEP.clear()
     _GLOBAL_SWEEP[id(base)] = g
     return g
