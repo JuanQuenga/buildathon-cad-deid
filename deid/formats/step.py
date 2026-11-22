@@ -22,7 +22,6 @@ from typing import Optional
 
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult,
                       REWRITTEN, VERIFIED_UNCHANGED, SOURCE_EXCEPTION, COPIED_UNSUPPORTED)
-from deid.formats import cadnames
 from deid.formats._neutral import PlanCache, ObsCollector, looks_like_reference, ref_kind
 
 CHUNK = 8 << 20
@@ -462,7 +461,7 @@ def _is_ascii_file(path: str) -> bool:
 
 class StepAdapter(Adapter):
     name = "step"
-    version = "6n"
+    version = "6"
     priority = 10
     magics = ("step",)
     extensions = (".step", ".stp", ".p21")
@@ -522,7 +521,7 @@ class StepAdapter(Adapter):
 
     # -- rewrite ----------------------------------------------------------
     def rewrite(self, ctx, src_path, dst_path, plan):
-        pc = PlanCache(cadnames.wrap(plan), ctx)
+        pc = PlanCache(plan, ctx)
         changed = 0
         seen = 0
         malformed = 0
