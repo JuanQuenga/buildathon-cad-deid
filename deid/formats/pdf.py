@@ -1478,8 +1478,9 @@ def sweep_tokens(lp, texts, keep=()) -> dict:
     phrases broken over two lines, unlabelled repeats, accent/case variants - plus the plan's distinctive
     identity tokens (_global_sweep_tokens). Returns {folded token: alias key}; the alias is the plan's
     deterministic token alias, so the same token reads the same in every PDF."""
-    if os.environ.get("DEID_PDF_SWEEP", "1") != "1" or not texts:
+    if os.environ.get("DEID_PDF_SWEEP", "1") != "1":
         return {}
+    texts = texts or []
     sp = _spread()
     maxdf = int(os.environ.get("DEID_PDF_SWEEP_LOCAL_MAXDF", "11"))
     base = getattr(lp, "_p", lp)
@@ -1522,15 +1523,9 @@ def sweep_tokens(lp, texts, keep=()) -> dict:
                 local.setdefault(f, norm_token(x))
     out = {}
     if os.environ.get("DEID_PDF_SWEEP_GLOBAL", "1") == "1":
-        g = _global_sweep_tokens(lp)
-        if g:
-            seen = set()
-            for page in texts:
-                for t in TOKEN_RE.findall(page):
-                    f = _fold(t)
-                    if f in g and f not in seen:
-                        seen.add(f)
-                        out[f] = g[f]
+        # every distinctive plan identity token is active in the whole document - page text and
+        # metadata (XMP dc:creator 'DOMAIN\\Name (ACCOUNT)', Info, bookmarks, link text) alike
+        out.update(_global_sweep_tokens(lp))
     out.update(local)
     # alias key: the spelling the plan already knows (so 'Víctor' reads like the plan's 'VICTOR');
     # never sweep a token that is itself one of our pseudonyms
@@ -2392,7 +2387,7 @@ def scrub_nontext_streams(pdf, plan, counts) -> int:
 
 class PdfAdapter(Adapter):
     name = "pdf"
-    version = "2e25n"
+    version = "2e26"
     priority = 20
     magics = ("pdf",)
     extensions = (".pdf",)
