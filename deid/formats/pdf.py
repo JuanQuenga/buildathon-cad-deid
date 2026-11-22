@@ -1430,7 +1430,7 @@ def _global_sweep_tokens(plan) -> dict:
             f = _fold(t)
             if len(f) < 4 or any(ch.isdigit() for ch in f) or not f.isalpha():
                 continue
-            if is_word(f) or f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf or f in sw:
+            if is_word(f) or f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf or f in sw or _PLACEHOLDER_TOK.fullmatch(f):
                 continue
             g.setdefault(f, norm_token(t) if norm_token(t) == f else f)
     # identities discovered by the PDF rules in other documents (two-pass: tools/pdf_global_ids.py)

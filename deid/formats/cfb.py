@@ -37,7 +37,7 @@ from typing import Optional
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult, Reference,
                       REWRITTEN, VERIFIED_UNCHANGED, COPIED_UNSUPPORTED, SOURCE_EXCEPTION)
 from deid.formats import _nativeutil as nu
-from deid.formats import cfb_accounts as accounts, cfb_zlb
+from deid.formats import cfb_accounts as accounts, cfb_zlb, cadnames
 
 try:
     import olefile
@@ -497,7 +497,7 @@ def scrub_dead(path, regions):
 
 class CfbAdapter(Adapter):
     name = "cfb"
-    version = "6"
+    version = "7"
     priority = 10
     magics = ("cfb",)
     path_independent = False
@@ -565,6 +565,11 @@ class CfbAdapter(Adapter):
                           fingerprint=fp, notes=notes)
 
     def rewrite(self, ctx, src_path, dst_path, plan):
+        # round 4: the CAD name pass (plan identity tokens incl. field-only saving accounts, 8.3 short
+        # names of user folders such as ADMINI~1, Parasolid USER=/SITE= values), same length, plan aliases
+        base_plan = plan
+        if os.environ.get("DEID_CFB_NAMES", "1") == "1":
+            plan = cadnames.wrap(plan, sweep=False)
         if olefile is None:
             return RewriteResult(status=COPIED_UNSUPPORTED, notes=["olefile missing"])
         try:
@@ -651,7 +656,7 @@ class CfbAdapter(Adapter):
                       and os.environ.get("DEID_IMAGE_OCR", "1") == "1"):
                     from deid.formats.solidworks import _redact_preview
                     kind = "Preview" if name == "Preview" else "PreviewPNG"
-                    new = _redact_preview(ctx, kind, data, plan, counts)
+                    new = _redact_preview(ctx, kind, data, base_plan, counts)
                     if new is not None and len(new) < len(data) and kind == "PreviewPNG":
                         new = new + b"\x00" * (len(data) - len(new))   # ignored after IEND
                     if new is not None and len(new) != len(data):
