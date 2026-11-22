@@ -1506,6 +1506,8 @@ def sweep_tokens(lp, texts, keep=()) -> dict:
                 f = _fold(x)
                 if len(f) < 3 or not any(ch.isalpha() for ch in f) or f.isdigit():
                     continue
+                if _PLACEHOLDER_TOK.fullmatch(x):
+                    continue
                 if len(f) == 3 and not x.isupper():
                     continue                        # 3 letters: only initials (CFK, DWS)
                 if f in _E5_ENG_WORDS or sp.get(f, 0) > maxdf or f in keep:
@@ -1827,10 +1829,13 @@ def _e5_value_ok(v: str) -> bool:
     return True
 
 
+_PLACEHOLDER_TOK = re.compile(r"[Xx#]+|[Yy]{2,4}|[Mm]{2}|[Dd]{2}")   # X.XX tolerances, DD-MM-YYYY masks
+
+
 def _e5_render(plan, v: str) -> Optional[str]:
     def sub(m):
         t = m.group(0)
-        if any(ch.isdigit() for ch in t) or t.lower() in _E5_ENG_WORDS:
+        if any(ch.isdigit() for ch in t) or t.lower() in _E5_ENG_WORDS or _PLACEHOLDER_TOK.fullmatch(t):
             return t
         return plan._render_tokens(t)
     try:
