@@ -1958,7 +1958,26 @@ def _e14_name_ok(first: str, rest: str) -> bool:
     return True
 
 
+_E14_SOFTWARE_TOK = set("""autodesk educational dassault systemes systèmes solidworks autocad freecad creo inventor
+catia siemens nx ptc fusion onshape rhino rhinoceros sketchup adobe acrobat microsoft parametric technology""".split())
+
+
+def _e14_software(v: str) -> bool:
+    """CAD/office software and its vendors ('Produced by an Autodesk Educational product', 'Dassault Systemes
+    SolidWorks Corporation') are tool names, not identities of the drawing's owner."""
+    from deid.identity.vocab import SOFTWARE
+    from deid.identity.aliases import norm_key
+    if norm_key(v) in SOFTWARE:
+        return True
+    toks = [t.lower() for t in TOKEN_RE.findall(v)]
+    return any(t in _E14_SOFTWARE_TOK for t in toks) and not any(t in ("university", "universidad", "institute", "college") for t in toks)
+
+
 def e14_candidates(text: str) -> list:
+    return [v for v in _e14_candidates(text) if not _e14_software(v)]
+
+
+def _e14_candidates(text: str) -> list:
     out = []
     for st in re.finditer(r"(?<![\w.])[A-ZÀ-Ý]", text):
         m = _E14_NAME.match(text, st.start())
