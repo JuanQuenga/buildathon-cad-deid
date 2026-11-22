@@ -1940,7 +1940,7 @@ link block clamp support rail rod tube pipe spring cap lid panel board wheel pul
 sheet assembly part drawing view section detail steel aluminium aluminum brass plastic body front back left right top
 bottom side upper lower inner outer main sub new old adapter connector cable box case plug socket switch sensor
 """.split())
-_E14_FUNC = set("of de del für fur di du la des the and y et und".split())
+_E14_FUNC = set("of de del für fur di du la des the and y et und property sole by propiedad eigentum".split())
 
 
 def _e14_name_ok(first: str, rest: str) -> bool:
