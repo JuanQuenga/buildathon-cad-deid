@@ -126,6 +126,8 @@ def render_readme(sha, dirty, rewrite_sha, plan_version, rows, out_paths, res, s
     L.append("  .venv/bin/python -m deid.pipeline plan     --input INPUT_DIR --work WORK")
     L.append("  .venv/bin/python tools/pdf_spread.py --input INPUT_DIR --manifest manifest.tsv --out WORK/pdf_spread.json.gz")
     L.append("  export DEID_PDF_SPREAD=WORK/pdf_spread.json.gz   # corpus spread of PDF words (private, stays in WORK)")
+    L.append("  .venv/bin/python tools/pdf_global_ids.py --input INPUT_DIR --manifest manifest.tsv --out WORK/pdf_global_ids.json.gz")
+    L.append("  export DEID_PDF_GLOBAL_IDS=WORK/pdf_global_ids.json.gz   # identities found in any PDF, applied in all (private)")
     L.append("  .venv/bin/python -m deid.pipeline rewrite  --input INPUT_DIR --work WORK --out STAGE --jobs 6")
     L.append("  .venv/bin/python -m deid.pipeline validate --input INPUT_DIR --work WORK --out STAGE --leak-scan full")
     L.append("  .venv/bin/python -m deid.pipeline package  --input INPUT_DIR --work WORK --stage STAGE --out ATTEMPT_DIR")
