@@ -1822,7 +1822,7 @@ def _e5_value_ok(v: str) -> bool:
         return False
     if all(t.lower() in _E5_ENG_WORDS or t.lower() in _E5_FUNC or len(t) <= 1 for t in toks):
         return False
-    if len(toks) > 6:
+    if len(toks) > 4:
         return False                  # sentences and legal text are not cell values
     return True
 
