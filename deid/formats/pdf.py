@@ -1561,10 +1561,16 @@ class _LocalPlan:
 
     def _sweep_sub(self, m):
         t = m.group(0)
-        key = self.sweep.get(_fold(t))
-        if key is None:
+        if _fold(t) not in self.sweep:
             return t
-        a = self._p._token_alias(key)
+        # the pseudonym comes from this spelling itself (as the plan / title-block rules render it
+        # everywhere else): folding only decides *whether* a token is swept, so 'Andrés' and 'Andres'
+        # keep their own, corpus-wide consistent aliases
+        key = norm_token(t)
+        base = self._p
+        if key in getattr(base, "_alias_set", ()) and key not in getattr(base, "_real_tokens", ()):
+            return t
+        a = base._token_alias(key)
         if len(a) != len(t):
             return t
         return "".join(c.upper() if o.isupper() else c for o, c in zip(t, a))
