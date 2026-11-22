@@ -1803,6 +1803,40 @@ _E5_BOILER = [
 ]
 
 
+# Bylines: a line that is only "By NAME" (article / drawing authors, pen names such as 'By GEOMETER'), and
+# "drawing / drawn / designed / written / photos by Name Surname" inside a line.
+_E26_BY_LINE = re.compile(r"^(?:By|BY|by|Von|VON|Por|POR|Par|PAR)[:\s]+((?:[A-Z]\.\s?){0,2}[A-ZÀ-Ý][\w'’\-]{2,20}(?:\s(?:[A-Z]\.\s?)?[A-ZÀ-Ý][\w'’\-]{1,20}){0,2})\.?$")
+_E26_BY_IN = re.compile(r"(?i:\b(?:drawn|drawing|drawings|designed|design|written|photos?|photographs?|illustrations?|modell?ed|cad)\s+by)[:\s]+"
+                        r"((?:[A-Z]\.\s?){0,2}[A-ZÀ-Ý][a-zà-ÿ'’\-]{1,20}(?:\s[A-ZÀ-Ý][a-zà-ÿ'’\-]{1,20}){1,2})")
+_E26_BY_STOP = set("""others other customer client hand default request the a an means machine vendor supplier owner
+user users design designer engineer engineering contractor manufacturer factory us me you them it this that default
+weight volume area length width height size scale volume order hours step steps""".split())
+
+
+def _e26_bylines(t: str) -> list:
+    out = []
+    t = t.strip()
+    if len(t) <= 40:
+        m = _E26_BY_LINE.match(t)
+        if m:
+            toks = [x.lower() for x in TOKEN_RE.findall(m.group(1))]
+            if toks and not any(x in _E26_BY_STOP or x in _E5_FUNC for x in toks) and not _e14_software_safe(m.group(1)):
+                out.append(m.group(1).rstrip("."))
+    for m in _E26_BY_IN.finditer(t):
+        v = m.group(1)
+        toks = [x.lower() for x in TOKEN_RE.findall(v)]
+        if not any(x in _E26_BY_STOP or x in _E5_ENG_WORDS for x in toks) and not _e14_software_safe(v):
+            out.append(v)
+    return out
+
+
+def _e14_software_safe(v: str) -> bool:
+    try:
+        return _e14_software(v)
+    except Exception:
+        return False
+
+
 _E25_OWNER_END = re.compile(r"(?i)(?:property of(?: the)?|sole property of(?: the)?|propiedad(?: exclusiva)? de(?: la| el)?|"
                             r"eigentum (?:der|des|von)|propri[ée]t[ée] (?:de|d['’])|propriet[àa] (?:di|della)|propietat de|"
                             r"propriedade d[aeo]s?|permission of(?: the)?)\s*[:,]?$")
@@ -2038,6 +2072,8 @@ def e5_identities(src_path, plan):
             for rx in _E5_BOILER:
                 for m in rx.finditer(t):
                     cands.append(m.group(1).strip())
+            if os.environ.get("DEID_PDF_BYLINE", "1") == "1":
+                cands.extend(_e26_bylines(t))
             if _E25_OWNER_END.search(t):
                 lh0 = max(y1 - y0, 1.0)
                 nxt = sorted((b0 - y1, tt) for (a0, b0, a1, b1, tt) in lines
