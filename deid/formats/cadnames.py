@@ -11,8 +11,12 @@ drawing is removed from its model with the identical pseudonym.
 from __future__ import annotations
 
 import os
+import re
 
 from deid.identity.aliases import TOKEN_RE, norm_token
+
+
+_ABS_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
 
 class NamePlan:
@@ -54,6 +58,17 @@ class NamePlan:
                 return t
             return "".join(c.upper() if o.isupper() else c for o, c in zip(t, a))
         return TOKEN_RE.sub(sub, text)
+
+    def map_reference(self, ctx, value):
+        """References keep the plan's mapping; an absolute drive/UNC path (a location on the author's
+        machine, never a corpus file) also gets the name sweep (M:\\daten\\Huber\\... ). """
+        m = self._p.map_reference(ctx, value)
+        if (os.environ.get("DEID_CAD_NAMES", "1") == "1" and isinstance(value, str)
+                and _ABS_RE.match(value)):
+            base = m if isinstance(m, str) else value
+            cut = max(base.rfind("\\"), base.rfind("/")) + 1    # the file name itself is never touched
+            return self._sweep(base[:cut]) + base[cut:]
+        return m
 
     def replace_text(self, text):
         r = self._p.replace_text(text)
