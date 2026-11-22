@@ -21,6 +21,7 @@ from typing import Optional
 
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult,
                       REWRITTEN, VERIFIED_UNCHANGED, SOURCE_EXCEPTION, COPIED_UNSUPPORTED)
+from deid.formats import cadnames
 from deid.formats._neutral import PlanCache, ObsCollector, looks_like_reference, ref_kind
 
 STRING_TYPES = {212, 213, 308, 310, 312, 314, 320, 402, 406, 408, 410, 416, 420, 422}
@@ -233,7 +234,7 @@ def _head_split(path: str):
 
 class IgesAdapter(Adapter):
     name = "iges"
-    version = "1"
+    version = "1n"
     priority = 9
     magics = ()
     extensions = (".igs", ".iges")
@@ -389,7 +390,7 @@ class IgesAdapter(Adapter):
             return RewriteResult(status=COPIED_UNSUPPORTED, notes=[f"iges: {e}"])
         if not ig.fixed:
             return RewriteResult(status=COPIED_UNSUPPORTED, notes=["iges: records are not 80 columns"])
-        pc = PlanCache(plan, ctx)
+        pc = PlanCache(cadnames.wrap(plan), ctx)
 
         def fn_s(t):
             v = _dec(t)

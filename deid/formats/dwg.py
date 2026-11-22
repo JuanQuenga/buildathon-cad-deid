@@ -27,6 +27,7 @@ section still decompresses to its declared size, SummaryInfo re-reads.
 from __future__ import annotations
 
 import re
+import os
 import struct
 from typing import Optional
 
@@ -477,7 +478,7 @@ _DWG_REF = re.compile(r"[^\x00|<>\"*?]{1,240}\.(dwg|dxf|pdf|png|jpg|jpeg|tif|bmp
 
 class DwgAdapter(Adapter):
     name = "dwg"
-    version = "1"
+    version = "1a"
     priority = 20
     magics = ("dwg",)
     extensions = (".dwg",)
@@ -541,16 +542,55 @@ class DwgAdapter(Adapter):
             d = Dwg(data)
         except DwgError as e:
             return RewriteResult(status=COPIED_UNSUPPORTED, notes=[f"dwg container: {e}"])
+        out = bytearray(data)
+        counts = {}
+        notes = []
+        wide = d.version >= b"AC1021"
         s = d.sections.get("AcDb:SummaryInfo")
-        if s is None or len(s.pages) != 1 or s.encrypted == 1 or s.pages[0].addr is None:
+        if s is not None and len(s.pages) == 1 and s.encrypted != 1 and s.pages[0].addr is not None:
+            r = self._rewrite_summary(d, data, out, s, plan, wide)
+            if isinstance(r, str):
+                return RewriteResult(status=COPIED_UNSUPPORTED, notes=[r])
+            if r:
+                counts["summary_fields"] = r
+        elif os.environ.get("DEID_DWG_APPINFO", "1") != "1":
             return RewriteResult(status=COPIED_UNSUPPORTED, notes=["summary info layout not supported"])
+        # application history / info: saving accounts and user folders (uncompressed single-page sections)
+        if os.environ.get("DEID_DWG_APPINFO", "1") == "1":
+            for name in ("AcDb:AppInfoHistory", "AcDb:AppInfo"):
+                s2 = d.sections.get(name)
+                if s2 is None or len(s2.pages) != 1 or s2.encrypted == 1 or s2.compressed == 2 or s2.pages[0].addr is None:
+                    continue
+                sp2 = s2.pages[0]
+                h2 = d.page_header(data, sp2.addr)
+                csize2 = h2[2]
+                usize2 = min(s2.max_size, s2.size, csize2)
+                comp2 = data[sp2.addr + 32:sp2.addr + 32 + csize2]
+                raw2 = bytearray(comp2[:usize2])
+                n2 = _rewrite_app_strings(raw2, plan, wide)
+                if not n2:
+                    continue
+                saved = bytes(out[sp2.addr:sp2.addr + 32 + csize2])
+                out[sp2.addr + 32:sp2.addr + 32 + csize2] = bytes(raw2) + comp2[usize2:]
+                if self._fix_checksums(data, out, sp2.addr, csize2) is None:
+                    out[sp2.addr:sp2.addr + 32 + csize2] = saved
+                    notes.append(f"{name}: page checksum scheme not recognised")
+                    continue
+                counts["appinfo_strings"] = counts.get("appinfo_strings", 0) + n2
+        if not counts:
+            if s is None or len(s.pages) != 1:
+                return RewriteResult(status=COPIED_UNSUPPORTED, notes=notes or ["summary info layout not supported"])
+            return RewriteResult(status=VERIFIED_UNCHANGED, notes=notes)
+        open(dst_path, "wb").write(out)
+        return RewriteResult(status=REWRITTEN, counts=counts, notes=notes)
+
+    def _rewrite_summary(self, d, data, out, s, plan, wide):
         sp = s.pages[0]
         h = d.page_header(data, sp.addr)
         csize = h[2]
         usize = min(s.max_size, s.size)
         comp = data[sp.addr + 32:sp.addr + 32 + csize]
         raw = bytearray(decompress(comp, usize) if s.compressed == 2 else comp[:usize])
-        wide = d.version >= b"AC1021"
         n = 0
         enc = "utf-16-le" if wide else "cp1252"
         for f, off, nb, t in parse_summary(bytes(raw), wide):
@@ -570,24 +610,20 @@ class DwgAdapter(Adapter):
             raw[off:off + nb] = b
             n += 1
         if not n:
-            return RewriteResult(status=VERIFIED_UNCHANGED)
+            return 0
         if s.compressed == 2:
             newc = compress(bytes(raw))
             if decompress(newc, usize) != bytes(raw):
-                return RewriteResult(status=COPIED_UNSUPPORTED, notes=["recompression self-check failed"])
+                return "recompression self-check failed"
             if len(newc) > csize:
-                return RewriteResult(status=COPIED_UNSUPPORTED, notes=["summary info does not fit its page"])
+                return "summary info does not fit its page"
             newc = newc + b"\x00" * (csize - len(newc))
         else:
             newc = bytes(raw) + comp[usize:]
-        out = bytearray(data)
         out[sp.addr + 32:sp.addr + 32 + csize] = newc
-        # checksums: determine the scheme from the original page, then apply it
-        hdr_new = self._fix_checksums(data, out, sp.addr, csize)
-        if hdr_new is None:
-            return RewriteResult(status=COPIED_UNSUPPORTED, notes=["page checksum scheme not recognised"])
-        open(dst_path, "wb").write(out)
-        return RewriteResult(status=REWRITTEN, counts={"summary_fields": n})
+        if self._fix_checksums(data, out, sp.addr, csize) is None:
+            return "page checksum scheme not recognised"
+        return n
 
     @staticmethod
     def _hdr_bytes(vals, addr):
@@ -658,19 +694,76 @@ class DwgAdapter(Adapter):
                             return VerifyResult(ok=False, notes=["page decompresses short"])
                     except DwgError:
                         return VerifyResult(ok=False, notes=["page no longer decompresses"])
-        try:
-            si = db.read_section("AcDb:SummaryInfo")
-            parse_summary(si, db.version >= b"AC1021")
-        except Exception:
-            return VerifyResult(ok=False, notes=["summary info unreadable"])
-        # bytes outside the summary page must be identical
-        s = db.sections["AcDb:SummaryInfo"]
-        sp = s.pages[0]
-        h = Dwg.page_header(b, sp.addr)
-        lo, hi = sp.addr, sp.addr + 32 + h[2]
-        if a[:lo] != b[:lo] or a[hi:] != b[hi:]:
-            return VerifyResult(ok=False, notes=["bytes outside the summary page changed"])
+        if "AcDb:SummaryInfo" in db.sections:
+            try:
+                si = db.read_section("AcDb:SummaryInfo")
+                parse_summary(si, db.version >= b"AC1021")
+            except Exception:
+                return VerifyResult(ok=False, notes=["summary info unreadable"])
+        # bytes outside the edited pages (SummaryInfo; uncompressed single-page AppInfo / AppInfoHistory)
+        # must be identical
+        spans = []
+        for name in ("AcDb:SummaryInfo", "AcDb:AppInfoHistory", "AcDb:AppInfo"):
+            s = db.sections.get(name)
+            if s is None or len(s.pages) != 1 or s.pages[0].addr is None:
+                continue
+            if name != "AcDb:SummaryInfo" and s.compressed == 2:
+                continue
+            sp = s.pages[0]
+            h = Dwg.page_header(b, sp.addr)
+            spans.append((sp.addr, sp.addr + 32 + h[2]))
+        spans.sort()
+        pos = 0
+        for lo, hi in spans:
+            if a[pos:lo] != b[pos:lo]:
+                return VerifyResult(ok=False, notes=["bytes outside the edited pages changed"])
+            pos = max(pos, hi)
+        if a[pos:] != b[pos:]:
+            return VerifyResult(ok=False, notes=["bytes outside the edited pages changed"])
         return VerifyResult(ok=True)
 
 
 register(DwgAdapter())
+
+_APP_RUN_W = re.compile(rb"(?:[\x20-\x7e\xa0-\xff]\x00){3,}")
+_APP_RUN_A = re.compile(rb"[\x20-\x7e]{3,}")
+_APP_STRING = re.compile(r"(<string>)([^<]{2,80})(</string>)")
+
+
+def _rewrite_app_strings(raw: bytearray, plan, wide: bool) -> int:
+    """Same-length edits of the text runs of AcDb:AppInfo(History): a <string> value that is a known
+    plan identity (field-only entries included: saving accounts) gets its alias; the rest of the run gets
+    the plan's free-text pass (user folders, names)."""
+    from deid.formats import cadnames
+    wp = cadnames.wrap(plan)
+    enc = "utf-16-le" if wide else "cp1252"
+    n = 0
+    for m in list((_APP_RUN_W if wide else _APP_RUN_A).finditer(bytes(raw))):
+        try:
+            t = m.group(0).decode(enc)
+        except UnicodeDecodeError:
+            continue
+
+        def ent(mm):
+            v = mm.group(2)
+            key = "".join(v.lower().split())
+            e = getattr(plan, "entries", {}).get(key) if hasattr(plan, "entries") else None
+            if e is None:
+                return mm.group(0)
+            a = plan.alias(v, e.kind) or v
+            return mm.group(1) + (a if len(a) == len(v) else v) + mm.group(3)
+        nt = _APP_STRING.sub(ent, t)
+        try:
+            nt2 = wp.replace_text(nt)
+        except Exception:
+            nt2 = nt
+        if len(nt2) == len(nt):
+            nt = nt2
+        if nt == t:
+            continue
+        b = nt.encode(enc, "replace")
+        if len(b) != len(m.group(0)):
+            continue
+        raw[m.start():m.end()] = b
+        n += 1
+    return n

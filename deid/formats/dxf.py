@@ -15,6 +15,7 @@ import re
 
 from deid.api import (Adapter, register, ScanResult, RewriteResult, VerifyResult,
                       REWRITTEN, VERIFIED_UNCHANGED, SOURCE_EXCEPTION)
+from deid.formats import cadnames
 from deid.formats._neutral import PlanCache, ObsCollector, looks_like_reference, ref_kind
 
 CHUNK = 8 << 20
@@ -198,7 +199,7 @@ def _walk(f, encd, visit):
 
 class DxfAdapter(Adapter):
     name = "dxf"
-    version = "2"
+    version = "2n"
     priority = 9
     magics = ()
     extensions = (".dxf",)
@@ -262,7 +263,7 @@ class DxfAdapter(Adapter):
         with open(src_path, "rb") as f:
             head = f.read(1 << 16)
         encd = _sniff_encoding(head)
-        pc = PlanCache(plan, ctx)
+        pc = PlanCache(cadnames.wrap(plan, names=True), ctx)
         nchg = 0
 
         def visit(code, val, st):
