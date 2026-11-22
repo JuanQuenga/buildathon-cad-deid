@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 NAME = re.compile(r"^(?:[A-ZÀ-Ý]\.\s?){0,2}[A-ZÀ-Ý][a-zà-ÿ'’\-]+(?:\s(?:[A-ZÀ-Ý]\.\s?)?[A-ZÀ-Ý][a-zà-ÿ'’\-]+){1,3}$"
                   r"|^(?:[A-ZÀ-Ý]\.\s?){1,2}[A-ZÀ-Ý][A-Za-zà-ÿ'’\-]+$")
 INPUT = None
+# generic words that title-block / organisation rules can pick up in other languages or as typos (not identities)
+GENERIC = set("""definiert chasis chassis cote coté côté insterting bluetooth humanoid unidades grado""".split())
 
 
 def fold(s):
@@ -110,7 +112,7 @@ def main():
                     tok_kind[f][k] += 1
     # a token seen in a single document only counts when it came from a name-shaped source
     keep = {f: f for f, d in tok_docs.items()
-            if len(d) >= 2 or tok_kind[f]["byline"] or tok_kind[f]["person"]}
+            if (len(d) >= 2 or tok_kind[f]["byline"] or tok_kind[f]["person"]) and f not in GENERIC}
     with gzip.open(a.out, "wt", encoding="utf-8") as fh:
         json.dump(keep, fh, sort_keys=True)
     print(f"{len(paths)} PDFs, {len(tok_docs)} candidate tokens, {len(keep)} written to {a.out}")
